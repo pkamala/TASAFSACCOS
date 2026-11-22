@@ -48,7 +48,7 @@ class LoanJournalController extends Controller
             ->join('loan_journal_lines as line', 'line.loan_journal_entry_id', '=', 'entry.id')
             ->where('entry.loan_journal_posting_id', $posting->id)
             ->orderBy('entry.id')->orderByDesc('line.signed_minor')->orderBy('line.id')
-            ->get(['entry.loan_application_id', 'entry.transaction_date', 'entry.source_reference', 'line.chart_account_id', 'line.signed_minor']) : collect($preview['lines'] ?? []);
+            ->get(['entry.loan_application_id', 'entry.transaction_date', 'entry.source_reference', 'line.chart_account_id', 'line.signed_minor']) : collect($preview['lines'] ?? [])->map(static fn ($line): stdClass => (object) $line);
 
         return view('staff.loan-journals.show', compact('reversalId', 'record', 'posting', 'accounts', 'offset', 'preview', 'lines'));
     }

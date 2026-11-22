@@ -58,6 +58,9 @@ class LoanJournalTest extends TestCase
         ])->assertRedirect("$path/$disbursement");
         $token = session('loan_journal_preview.token');
         $this->assertDatabaseEmpty('loan_journal_postings');
+        $this->withSession(['loan_journal_preview' => json_decode(
+            json_encode(session('loan_journal_preview'), JSON_THROW_ON_ERROR), true, flags: JSON_THROW_ON_ERROR,
+        )]);
         $this->get("$path/$disbursement")->assertOk()->assertSee('Preview journal lines')->assertSee('1,030.00');
         $this->post("$path/$disbursement/post", ['token' => $token])->assertRedirect("$path/$disbursement");
         $this->from("$path/$disbursement")->post("$path/$disbursement/post", ['token' => $token])->assertSessionHasErrors('journal');
