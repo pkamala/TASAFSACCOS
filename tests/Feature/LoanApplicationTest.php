@@ -49,7 +49,7 @@ class LoanApplicationTest extends TestCase
         $payload = [
             'submission_id' => (string) Str::uuid(),
             'principal' => '1000000',
-            'pricing_revision_id' => $revision, 'term_months' => '3', 'first_due_date' => '2027-01-31',
+            'pricing_revision_id' => $revision, 'loan_category_id' => DB::table('loan_categories')->where('name', 'Staff loan')->value('id'), 'term_months' => '3', 'first_due_date' => '2027-01-31',
         ];
         $this->from("$path/new")->post($path, [...$payload, 'annual_rate' => '1'])->assertSessionHasErrors('annual_rate');
         $this->from("$path/new")->post($path, [...$payload, 'pricing_revision_id' => $revision + 1])->assertSessionHasErrors('pricing_revision_id');
@@ -95,5 +95,18 @@ class LoanApplicationTest extends TestCase
             ->assertSessionHasErrors('decision');
         $this->assertDatabaseCount('loan_application_decisions', 1);
         $this->get('/staff/loan-applications')->assertOk()->assertSee('No applications awaiting review.');
+    }
+
+    public function test_only_admins_can_add_categories_and_names_are_unique_regardless_of_case(): void
+    {
+        $path = '/staff/loan-categories';
+        $this->actingAs(User::factory()->create(['board_role' => 'chairperson']))
+            ->post($path, ['name' => 'Education loan'])->assertForbidden();
+
+        $admin = User::factory()->create(['is_staff_admin' => true]);
+        $this->actingAs($admin)->get($path)->assertOk()->assertSee('Staff loan')->assertSee('Emergency loan');
+        $this->post($path, ['name' => 'Education loan'])->assertRedirect($path);
+        $this->assertDatabaseHas('loan_categories', ['name' => 'Education loan', 'created_by' => $admin->id]);
+        $this->from($path)->post($path, ['name' => 'education loan'])->assertSessionHasErrors('name');
     }
 }

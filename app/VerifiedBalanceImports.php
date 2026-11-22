@@ -13,7 +13,7 @@ class VerifiedBalanceImports
 
     public function read(UploadedFile $upload): array
     {
-        $file = $upload->openFile();
+        $file = ImportTable::open($upload, 'opening_balances');
         $file->setCsvControl(',', '"', '');
         $header = $file->fgetcsv() ?: [];
         $header[0] = preg_replace('/^\xEF\xBB\xBF/', '', $header[0] ?? '');
@@ -31,13 +31,13 @@ class VerifiedBalanceImports
                 continue;
             }
             if (count($values) !== count(self::Fields) || count($rows) >= 1000) {
-                $this->invalid("Invalid column count or 1,000-row limit exceeded at CSV record $line.");
+                $this->invalid("Invalid column count or 1,000-row limit exceeded at row $line.");
             }
 
             $data = array_combine(self::Fields, array_map('trim', $values));
             $text = implode('', $data);
             if (preg_match('//u', $text) !== 1 || str_contains($text, "\0")) {
-                $this->invalid("Use valid UTF-8 text in CSV record $line.");
+                $this->invalid("Use valid UTF-8 text in row $line.");
             }
             $data['registration_no'] = strtoupper($data['registration_no']);
             $money = ['required', 'regex:/\A\d{1,12}(?:\.\d{1,2})?\z/'];
@@ -50,11 +50,11 @@ class VerifiedBalanceImports
                 'evidence_reference' => ['required', 'max:500'],
             ]);
             if ($validator->fails()) {
-                $this->invalid("Invalid fields in CSV record $line: ".implode(', ', $validator->errors()->keys()).'.');
+                $this->invalid("Invalid fields in row $line: ".implode(', ', $validator->errors()->keys()).'.');
             }
 
             if (isset($rows[$data['registration_no']])) {
-                $this->invalid("Membership number repeated in CSV record $line.");
+                $this->invalid("Membership number repeated in row $line.");
             }
             $rows[$data['registration_no']] = [
                 'line' => $line,
@@ -68,7 +68,7 @@ class VerifiedBalanceImports
         }
 
         if ($rows === []) {
-            $this->invalid('The CSV has no opening balances.');
+            $this->invalid('The file has no opening balances.');
         }
 
         return $rows;

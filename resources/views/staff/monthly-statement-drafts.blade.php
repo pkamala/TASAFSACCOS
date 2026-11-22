@@ -20,11 +20,11 @@
         @if ($ready)
             <p><a href="{{ route('staff.statement-drafts.download', ['period' => $period]) }}">Download ready drafts (CSV)</a></p>
         @endif
-        <p class="note">Contributions include savings deposits and share purchases credited in the month. Loan balances combine operational principal outstanding with finance-verified legacy principal for the same month-end. Verify recipient addresses and figures before importing a draft for delivery.</p>
+        <p class="note">Contributions include savings deposits and share purchases credited in the month. Loan balances combine operational principal outstanding with finance-verified legacy principal for the same month-end. Verify recipient addresses and figures before queuing a draft for delivery.</p>
     </section>
     <section class="panel stacked-panel">
         <div class="table-wrap" tabindex="0" role="region" aria-label="Monthly statement drafts">
-            <table>
+            <table data-table-pages>
                 <thead><tr><th scope="col">Member</th><th scope="col" class="money">Loan principal (TZS)</th><th scope="col" class="money">Contributions (TZS)</th><th scope="col" class="money">Savings (TZS)</th><th scope="col">Review status</th></tr></thead>
                 <tbody>
                     @forelse ($drafts as $row)

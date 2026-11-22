@@ -48,7 +48,7 @@
         @php($credit = $accounts->get($journal->credit_account_id))
         <section class="panel stacked-panel print-register">
             <h2>{{ $posting ? 'Journal lines' : 'Preview journal lines' }}</h2>
-            <div class="table-wrap"><table>
+            <div class="table-wrap"><table data-table-pages>
                 <thead><tr><th scope="col">Account</th><th scope="col" class="money">Debit (TZS)</th><th scope="col" class="money">Credit (TZS)</th></tr></thead>
                 <tbody>
                     <tr><th scope="row">{{ $debit->code }} · {{ $debit->name }} · {{ $debit->legacy_id ? 'Legacy ID '.$debit->legacy_id : 'Account ID '.$debit->id }}</th><td class="money">{{ number_format($journal->amount_minor / 100, 2) }}</td><td class="money">—</td></tr>

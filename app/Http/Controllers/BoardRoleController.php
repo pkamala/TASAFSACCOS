@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\TablePage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -23,7 +24,7 @@ class BoardRoleController extends Controller
             ->leftJoin('users as next', 'next.id', '=', 'change.next_user_id')
             ->join('users as actor', 'actor.id', '=', 'change.changed_by')
             ->orderByDesc('change.id')
-            ->simplePaginate(25, ['change.*', 'previous.name as previous_name', 'next.name as next_name', 'actor.name as actor_name']);
+            ->simplePaginate(TablePage::size(), ['change.*', 'previous.name as previous_name', 'next.name as next_name', 'actor.name as actor_name']);
 
         return view('staff.board-roles', ['roles' => self::Roles, ...compact('holders', 'history')]);
     }

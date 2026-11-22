@@ -13,25 +13,12 @@ class MemberAccountTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
-    public function test_a_member_can_create_an_account_on_the_pc_and_only_see_their_membership(): void
+    public function test_a_member_can_sign_in_and_only_see_their_own_membership(): void
     {
-        $this->app->instance('env', 'local');
-        config(['auth.local_member_setup' => true]);
         $member = $this->member('Asha', '10074', 'member@example.com');
         $other = $this->member('Another', '10164', 'other@example.com');
-        $csrf = str_repeat('t', 40);
-        $this->withSession(['_token' => $csrf]);
-        $path = 'http://localhost/staff/first-time-setup';
-        $data = [
-            '_token' => $csrf, 'email' => 'member@example.com', 'registration_no' => '10074',
-            'password' => 'normal-member-password', 'password_confirmation' => 'normal-member-password',
-        ];
-
-        $this->from($path)->post($path, [...$data, 'registration_no' => '10164'])->assertSessionHasErrors('email');
-        $this->assertDatabaseEmpty('users');
-        $this->post($path, $data)->assertRedirect('/staff/login');
-        $this->assertDatabaseHas('users', ['email' => $data['email'], 'member_id' => $member, 'board_role' => null, 'is_staff_admin' => false]);
-        $this->post('http://localhost/staff/login', ['_token' => $csrf, 'email' => $data['email'], 'password' => $data['password']])
+        $account = User::factory()->create(['member_id' => $member, 'email' => 'member@example.com']);
+        $this->post('/staff/login', ['email' => $account->email, 'password' => 'password'])
             ->assertRedirect('/member/account');
         $this->get('/member/account')->assertOk()->assertSee('10074')->assertDontSee('10164');
         $this->get("/staff/members/$other")->assertForbidden();

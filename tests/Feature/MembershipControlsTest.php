@@ -31,7 +31,7 @@ class MembershipControlsTest extends TestCase
         $path = "/staff/members/$member/loan-applications";
         $upload = "/staff/members/$member/verified-balances";
         $payload = [
-            'submission_id' => (string) Str::uuid(), 'principal' => '500000', 'pricing_revision_id' => $revision,
+            'submission_id' => (string) Str::uuid(), 'principal' => '500000', 'pricing_revision_id' => $revision, 'loan_category_id' => DB::table('loan_categories')->where('name', 'Staff loan')->value('id'),
             'term_months' => 6, 'first_due_date' => '2026-12-31',
         ];
 

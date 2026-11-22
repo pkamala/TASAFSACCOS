@@ -8,17 +8,20 @@ use Illuminate\Validation\ValidationException;
 
 class LedgerOpeningJournal
 {
-    private const Headers = ['legacy_account_id', 'account_code', 'debit_tzs', 'credit_tzs'];
+    private const Headers = ['account_code', 'debit_tzs', 'credit_tzs'];
+
+    private const LegacyHeaders = ['legacy_account_id', ...self::Headers];
 
     public function __construct(private LedgerPeriods $periods) {}
 
     public function read(UploadedFile $upload): array
     {
-        $file = $upload->openFile();
+        $file = ImportTable::open($upload, 'opening_journal');
         $file->setCsvControl(',', '"', '');
         $header = $file->fgetcsv() ?: [];
         $header[0] = preg_replace('/^\xEF\xBB\xBF/', '', $header[0] ?? '');
-        if ($header !== self::Headers) {
+        $legacy = $header === self::LegacyHeaders;
+        if (! $legacy && $header !== self::Headers) {
             $this->invalid('Use the headers from the ledger opening journal template.');
         }
 
@@ -30,21 +33,24 @@ class LedgerOpeningJournal
             if ($values === false || $values === [null]) {
                 continue;
             }
-            if (count($values) !== 4 || count($rows) >= 1000) {
-                $this->invalid("Invalid column count or 1,000-row limit exceeded at CSV record $line.");
+            if (count($values) !== count($header) || count($rows) >= 1000) {
+                $this->invalid("Invalid column count or 1,000-row limit exceeded at row $line.");
             }
 
-            [$id, $code, $debit, $credit] = array_map('trim', $values);
-            if (! preg_match('/\A[1-9]\d{0,9}\z/', $id) || (int) $id > 2147483647 || isset($rows[(int) $id])
-                || preg_match('/\A[\x20-\x7e]{1,100}\z/', $code) !== 1) {
-                $this->invalid("Supply a unique legacy account ID and its account code in CSV record $line.");
+            $values = array_map('trim', $values);
+            $id = $legacy ? array_shift($values) : null;
+            [$code, $debit, $credit] = $values;
+            $key = $legacy ? (int) $id : $code;
+            if (($legacy && (! preg_match('/\A[1-9]\d{0,9}\z/', $id) || (int) $id > 2147483647))
+                || isset($rows[$key]) || preg_match('/\A[\x20-\x7e]{1,100}\z/', $code) !== 1) {
+                $this->invalid("Supply a unique account reference and valid code in row $line.");
             }
             $debit = $this->minor($debit, $line);
             $credit = $this->minor($credit, $line);
             if (($debit > 0) === ($credit > 0)) {
-                $this->invalid("CSV record $line must have exactly one nonzero side.");
+                $this->invalid("row $line must have exactly one nonzero side.");
             }
-            $rows[(int) $id] = ['legacy_id' => (int) $id, 'code' => $code, 'signed_minor' => $debit - $credit];
+            $rows[$key] = ['legacy_id' => $legacy ? (int) $id : null, 'code' => $code, 'signed_minor' => $debit - $credit];
         }
 
         if (count($rows) < 2 || array_sum(array_column($rows, 'signed_minor')) !== 0) {
@@ -75,15 +81,20 @@ class LedgerOpeningJournal
             $this->invalid('The cutover month is closed.');
         }
 
-        $accounts = DB::table('chart_accounts')->whereIntegerInRaw('legacy_id', array_keys($rows))
-            ->get(['id', 'legacy_id', 'code', 'name', 'is_ledger_account'])->keyBy('legacy_id');
+        $legacy = reset($rows)['legacy_id'] !== null;
+        $accounts = DB::table('chart_accounts')->whereIn($legacy ? 'legacy_id' : 'code', $legacy ? array_keys($rows) : array_map(strval(...), array_keys($rows)))
+            ->when(! $legacy, fn ($query) => $query->whereNull('retired_at'))
+            ->get(['id', 'legacy_id', 'code', 'name', 'is_ledger_account', 'retired_at'])
+            ->groupBy($legacy ? 'legacy_id' : 'code');
         $plan = [];
-        foreach ($rows as $id => $row) {
-            $account = $accounts->get($id);
+        foreach ($rows as $key => $row) {
+            $matches = $accounts->get($key, collect());
+            $account = $matches->count() === 1 ? $matches->first() : null;
             $status = match (true) {
-                $account === null => 'Legacy account ID not found',
+                $matches->count() > 1 => 'Multiple active accounts match this code',
+                $account === null => $legacy ? 'Legacy account ID not found' : 'Account code not found',
                 $account->code !== $row['code'] => 'Account code does not match',
-                ! $account->is_ledger_account => 'Account is unavailable for posting',
+                ! $account->is_ledger_account || $account->retired_at !== null => 'Account is unavailable for posting',
                 default => 'Ready',
             };
             $plan[] = [...$row, 'account_id' => $account?->id, 'name' => $account?->name, 'status' => $status];
@@ -122,7 +133,7 @@ class LedgerOpeningJournal
             return 0;
         }
         if (! preg_match('/\A\d{1,12}(?:\.\d{1,2})?\z/', $value)) {
-            $this->invalid("Use plain TZS amounts with up to two decimal places in CSV record $line.");
+            $this->invalid("Use plain TZS amounts with up to two decimal places in row $line.");
         }
         [$whole, $fraction] = array_pad(explode('.', $value, 2), 2, '');
 

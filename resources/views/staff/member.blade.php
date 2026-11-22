@@ -5,6 +5,7 @@
         <a href="{{ route('staff.members.index') }}">All members</a>
         <h1>{{ $profile->first_name }} {{ $profile->last_name }}</h1>
         <p>{{ $profile->registration_no }} · {{ ucfirst($profile->status) }}</p>
+        <a href="{{ route('staff.members.next-of-kin.index', $profile->id) }}">Next of kin</a>
         <a href="{{ route('staff.loan-applications.index', $profile->id) }}">Loan applications</a>
         <a href="{{ route('staff.member-funds.index', $profile->id) }}">Savings and shares</a>
         <a href="{{ route('staff.member-balances.index', $profile->id) }}">Verified savings and shares</a>
@@ -29,6 +30,37 @@
                 @endforeach
                 <button class="primary">Save profile</button>
             </form>
+        </section>
+        <section class="panel">
+            <h2>Recurring payroll contributions</h2>
+            <p>Set the agreed monthly savings and share deductions. Enter zero for any deduction that should be omitted from new payroll lists.</p>
+            <form method="POST" action="{{ route('staff.members.payroll.update', $profile->id) }}" class="fields">
+                @csrf
+                @method('PATCH')
+                @foreach (['payroll_savings' => 'Monthly savings (TZS)', 'payroll_shares' => 'Monthly shares (TZS)'] as $field => $label)
+                    <label for="{{ $field }}">{{ $label }}</label>
+                    <input id="{{ $field }}" name="{{ $field }}" type="number" min="0" max="999999999999.99" step="0.01"
+                        value="{{ is_string(old($field)) ? old($field) : number_format($profile->{$field.'_minor'} / 100, 2, '.', '') }}" required>
+                @endforeach
+                <label for="payroll-reference">Approval or change reference</label>
+                <textarea id="payroll-reference" name="payroll_reference" maxlength="500" required>{{ is_string(old('payroll_reference')) ? old('payroll_reference') : '' }}</textarea>
+                <button class="primary">Save payroll contributions</button>
+            </form>
+        </section>
+        <section class="panel" id="member-login">
+            <h2>Member login</h2>
+            @if ($login?->is_staff_admin)
+                <p>This account has administrator access. Use administrator password recovery.</p>
+            @elseif ($login || $profile->status === 'active')
+                <p>{{ $login?->email ?? $profile->email }} · {{ $login ? ($login->local_setup_pending ? 'Setup pending' : 'Account created') : 'No login yet' }}</p>
+                <p>A one-time link will be emailed to this address.</p>
+                <form method="POST" action="{{ route('staff.members.login-link', $profile->id) }}">
+                    @csrf
+                    <button class="primary">{{ $login && ! $login->local_setup_pending ? 'Email password reset link' : 'Email account setup link' }}</button>
+                </form>
+            @else
+                <p>New logins require active membership.</p>
+            @endif
         </section>
         <section class="panel">
             <h2>Profile change history</h2>

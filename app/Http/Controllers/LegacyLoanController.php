@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\TablePage;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
@@ -12,7 +13,7 @@ class LegacyLoanController extends Controller
     public function index(int $member): View
     {
         $profile = $this->profile($member);
-        $loans = $this->memberLoans($profile)->orderByDesc('source_id')->simplePaginate(25);
+        $loans = $this->memberLoans($profile)->orderByDesc('source_id')->simplePaginate(TablePage::size());
 
         return view('staff.legacy-loans', compact('profile', 'loans'));
     }
@@ -25,10 +26,10 @@ class LegacyLoanController extends Controller
 
         $schedule = $this->linkedRows($profile, 'loanschedules', 'loan_id', $loan)
             ->orderByRaw("(data->>'month')::integer NULLS LAST")
-            ->orderBy('legacy_onboarding_rows.source_id')->simplePaginate(36, ['*'], 'schedule_page');
+            ->orderBy('legacy_onboarding_rows.source_id')->simplePaginate(TablePage::size('schedule_page'), ['*'], 'schedule_page');
         $repayments = $this->linkedRows($profile, 'repayments', 'resolved_loan_id', $loan)
             ->orderByRaw("data->>'paymentdate' DESC NULLS LAST")
-            ->orderByDesc('legacy_onboarding_rows.source_id')->simplePaginate(25, ['*'], 'repayment_page');
+            ->orderByDesc('legacy_onboarding_rows.source_id')->simplePaginate(TablePage::size('repayment_page'), ['*'], 'repayment_page');
         $schedule->appends(['repayment_page' => $repayments->currentPage()]);
         $repayments->appends(['schedule_page' => $schedule->currentPage()]);
 

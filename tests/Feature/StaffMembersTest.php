@@ -38,6 +38,8 @@ class StaffMembersTest extends TestCase
         $this->post('/staff/login', ['email' => $admin->email, 'password' => 'password'])
             ->assertRedirect('/staff/members');
         $this->get('/staff/members?q=10415')->assertOk()->assertSee('Asha Mushi');
+        $this->get('/staff/members?q=10415', ['X-Requested-With' => 'XMLHttpRequest'])
+            ->assertOk()->assertSee('data-live-table-results', false)->assertSee('Asha Mushi')->assertDontSee('<!doctype html>', false);
         $this->get('/staff/members?q=99999')->assertOk()->assertDontSee('Asha Mushi');
 
         $details = [
@@ -59,5 +61,25 @@ class StaffMembersTest extends TestCase
         $this->assertDatabaseCount('member_audits', 1);
         $this->post('/staff/logout')->assertRedirect('/staff/login');
         $this->assertGuest();
+    }
+
+    public function test_members_page_size_keeps_the_search_and_accepts_only_supported_sizes(): void
+    {
+        $admin = User::factory()->create(['is_staff_admin' => true]);
+        DB::table('members')->insert(array_map(fn (int $sequence): array => [
+            'registration_no' => "TEST-$sequence", 'first_name' => 'Pagination', 'last_name' => 'Member',
+            'email' => "page-$sequence@example.com", 'status' => 'active',
+        ], range(1, 51)));
+        $path = '/staff/members?q=Pagination';
+        $this->actingAs($admin)->get($path)->assertOk()
+            ->assertViewHas('members', fn ($page): bool => $page->count() === 10);
+        foreach ([10 => 10, 25 => 25, 50 => 50, 100 => 51, 999 => 10] as $size => $count) {
+            $this->get("$path&per_page=$size")->assertOk()
+                ->assertViewHas('members', fn ($page): bool => $page->count() === $count);
+        }
+        $this->get("$path&per_page=10&page=2")->assertOk()
+            ->assertViewHas('members', fn ($page): bool => $page->currentPage() === 2 && $page->count() === 10)
+            ->assertSee('name="q" value="Pagination"', false)
+            ->assertSee('per_page=10&amp;page=3', false);
     }
 }

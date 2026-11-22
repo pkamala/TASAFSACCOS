@@ -13,8 +13,6 @@
             <input id="password" type="password" name="password" autocomplete="current-password" required>
             <button class="primary">Sign in</button>
         </form>
-        @if ($localSetupAvailable)
-            <p><a href="{{ route('staff.local-setup') }}">Create your member account</a></p>
-        @endif
+        <p class="note">Contact the SACCOS administrator for account setup or a password reset.</p>
     </section>
 @endsection

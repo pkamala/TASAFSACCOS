@@ -4,6 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Mail\MonthlyMemberStatementMail;
 use App\MonthlyMemberStatementImport;
+use App\MonthlyStatementDrafts;
+use App\StatementMailer;
+use App\TablePage;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\RedirectResponse;
@@ -17,7 +20,7 @@ use InvalidArgumentException;
 
 class MonthlyStatementReviewController extends Controller
 {
-    public function index(Request $request, MonthlyMemberStatementImport $imports): View
+    public function index(Request $request, MonthlyMemberStatementImport $imports, StatementMailer $mailer): View
     {
         [$selected, $period] = $this->selectedPeriod($request, $imports);
         $preview = $this->previewFor($request);
@@ -34,11 +37,12 @@ class MonthlyStatementReviewController extends Controller
         $queued = $rows->leftJoin('users as actor', 'actor.id', '=', 'statement.queued_by')
             ->select('statement.*', 'member.registration_no', 'member.first_name', 'member.last_name', 'actor.name as reviewer')
             ->selectRaw("($mismatch) AS recipient_mismatch", ['pending'])
-            ->orderBy('member.registration_no')->orderBy('statement.id')->simplePaginate(25)->appends(['period' => $selected]);
-        $transport = config('mail.mailers.'.config('mail.default').'.transport');
-        $deliveryConfigured = in_array($transport, config('statements.delivery_transports'), true);
+            ->orderByRaw('lower(member.first_name), lower(member.last_name)')->orderBy('statement.id')->simplePaginate(TablePage::size())->appends(['period' => $selected]);
+        $deliveryConfigured = $mailer->configured($mailer->selectedAccountId());
 
-        return view('staff.monthly-statement-review', compact('selected', 'preview', 'queued', 'counts', 'deliveryConfigured'));
+        $automatic = $mailer->automaticEnabled();
+
+        return view('staff.monthly-statement-review', compact('selected', 'preview', 'queued', 'counts', 'deliveryConfigured', 'automatic'));
     }
 
     public function sample(Request $request, MonthlyMemberStatementImport $imports, Markdown $markdown): View
@@ -54,34 +58,48 @@ class MonthlyStatementReviewController extends Controller
 
     public function preview(Request $request, MonthlyMemberStatementImport $imports): RedirectResponse
     {
+        return $this->review($request, $imports);
+    }
+
+    public function previewDrafts(Request $request, MonthlyMemberStatementImport $imports, MonthlyStatementDrafts $drafts): RedirectResponse
+    {
+        return $this->review($request, $imports, $drafts);
+    }
+
+    private function review(Request $request, MonthlyMemberStatementImport $imports, ?MonthlyStatementDrafts $drafts = null): RedirectResponse
+    {
         $request->session()->forget('monthly_statement_review');
-        $data = $request->validate([
+        $rules = [
             'period' => ['required', 'string', 'size:7'],
             'review_reference' => ['required', 'string', 'max:500'],
-            'statements' => ['required', 'file', 'max:1024'],
-        ]);
+        ];
+        if ($drafts === null) {
+            $rules['statements'] = ['required', 'file', 'max:1024'];
+        }
+        $data = $request->validate($rules);
+        $field = $drafts === null ? 'statements' : 'period';
 
         try {
             $period = $imports->period($data['period']);
-            $source = $imports->readCsv($data['statements']->getPathname());
-            if (count($source[1]) > 1000) {
-                throw new InvalidArgumentException('A review file can contain up to 1,000 statements.');
+            $source = $drafts !== null ? $drafts->source($period) : $imports->readCsv($data['statements']->getPathname());
+            if ($source[1] === [] || count($source[1]) > 1000) {
+                throw new InvalidArgumentException('A review needs between 1 and 1,000 eligible statements.');
             }
             $plan = $imports->plan($period, $source);
         } catch (InvalidArgumentException $exception) {
-            throw ValidationException::withMessages(['statements' => $exception->getMessage()]);
+            throw ValidationException::withMessages([$field => $exception->getMessage()]);
         }
 
         $request->session()->put('monthly_statement_review', [
             'actor' => $request->user()->id, 'token' => Str::random(40), 'period' => $period,
             'source' => $source, 'plan' => $plan, 'review_reference' => $data['review_reference'],
-            'already_recorded' => count($source[1]) - count($plan),
+            'already_recorded' => count($source[1]) - count($plan), 'system_drafts' => $drafts !== null,
         ]);
 
         return redirect()->route('staff.statement-review.index', ['period' => $data['period']])->withFragment('preview');
     }
 
-    public function queue(Request $request, MonthlyMemberStatementImport $imports): RedirectResponse
+    public function queue(Request $request, MonthlyMemberStatementImport $imports, MonthlyStatementDrafts $drafts): RedirectResponse
     {
         $data = $request->validate(['token' => ['required', 'string', 'size:40']]);
         $preview = $this->previewFor($request);
@@ -90,9 +108,9 @@ class MonthlyStatementReviewController extends Controller
         }
 
         try {
-            $count = DB::transaction(function () use ($imports, $preview): int {
+            $count = DB::transaction(function () use ($imports, $preview, $drafts): int {
                 $plan = $imports->plan($preview['period'], $preview['source'], lock: true);
-                if ($plan !== $preview['plan']) {
+                if ($plan !== $preview['plan'] || (($preview['system_drafts'] ?? false) && $drafts->source($preview['period'])[0] !== $preview['source'][0])) {
                     throw new InvalidArgumentException('The statements or member details changed after preview. Preview the file again.');
                 }
 

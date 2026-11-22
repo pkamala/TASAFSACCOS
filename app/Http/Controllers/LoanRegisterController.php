@@ -13,6 +13,8 @@ class LoanRegisterController extends Controller
     {
         $source = $request->validate(['source' => ['nullable', 'in:applications,legacy']])['source'] ?? 'applications';
 
+        $categories = collect();
+        $categoryId = null;
         if ($source === 'legacy') {
             abort_unless($request->user()->can('manage-members'), 403);
             $query = DB::table('legacy_onboarding_rows as loan')->where('loan.source_table', 'loans')
@@ -26,24 +28,28 @@ class LoanRegisterController extends Controller
             $loans = $query->when($status !== null, fn ($query) => $query->whereRaw("loan.data->>'loan_status' = ?", [$status]))
                 ->select('loan.source_id as id', 'member.id as member_id', 'member.registration_no', 'member.first_name', 'member.last_name')
                 ->selectRaw("loan.data->>'loan_code' AS reference, loan.data->>'loan_status' AS status, loan.data->>'principle' AS principal, loan.data->>'duration' AS term_months")
-                ->orderBy('loan.source_id')->get();
+                ->orderByRaw('lower(member.first_name), lower(member.last_name)')->orderBy('loan.source_id')->get();
         } else {
             $statuses = ['submitted', 'approved', 'declined', 'disbursed', 'repaid', 'cancelled'];
             $status = $request->validate(['status' => ['nullable', Rule::in($statuses)]])['status'] ?? null;
+            $categoryId = (int) ($request->validate(['category' => ['nullable', 'integer', 'exists:loan_categories,id']])['category'] ?? 0);
+            $categories = DB::table('loan_categories')->orderBy('name')->get(['id', 'name']);
             $loans = DB::table('loan_applications as loan')
+                ->leftJoin('loan_categories as category', 'category.id', '=', 'loan.loan_category_id')
+                ->when($categoryId, fn ($query) => $query->where('loan.loan_category_id', $categoryId))
                 ->join('members as member', 'member.id', '=', 'loan.member_id')
                 ->when($status !== null, fn ($query) => $query->where('loan.status', $status))
                 ->select([
                     'loan.id', 'loan.member_id', 'loan.status', 'loan.term_months', 'loan.interest_method', 'loan.first_due_date',
-                    'member.registration_no', 'member.first_name', 'member.last_name',
+                    'member.registration_no', 'member.first_name', 'member.last_name', 'category.name as category_name',
                 ])
                 ->selectRaw('loan.principal_minor::numeric / 100 AS principal, loan.annual_basis_points::numeric / 100 AS rate')
                 ->selectRaw('(loan.insurance_minor + loan.processing_fee_minor + loan.other_charges_minor)::numeric / 100 AS charges')
-                ->orderBy('loan.id')->get();
+                ->orderByRaw('lower(member.first_name), lower(member.last_name)')->orderBy('loan.id')->get();
         }
 
         $printedOn = now('Africa/Dar_es_Salaam')->format('d M Y H:i');
 
-        return view('staff.loan-applications.register', compact('source', 'statuses', 'status', 'loans', 'printedOn'));
+        return view('staff.loan-applications.register', compact('source', 'statuses', 'status', 'loans', 'printedOn', 'categories', 'categoryId'));
     }
 }

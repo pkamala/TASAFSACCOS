@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\ChartPostingAccounts;
 use App\LedgerPeriods;
+use App\TablePage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -21,7 +22,7 @@ class LoanJournalController extends Controller
         $postings = DB::table('loan_journal_postings as posting')
             ->join('loan_batches as batch', 'batch.id', '=', 'posting.loan_batch_id')
             ->join('users as actor', 'actor.id', '=', 'posting.posted_by')
-            ->orderByDesc('posting.id')->simplePaginate(25, [
+            ->orderByDesc('posting.id')->simplePaginate(TablePage::size(), [
                 'posting.id', 'posting.loan_batch_id', 'posting.posted_at',
                 'batch.kind', 'batch.effective_date', 'actor.name as actor',
             ]);

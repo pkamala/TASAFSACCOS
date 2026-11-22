@@ -26,8 +26,8 @@ class ChartOfAccountsTest extends TestCase
         $sources = [
             ['categoryaccounts', 10, ['name' => 'Liabilities', 'code' => 'L']],
             ['categoryaccountstypes', 20, ['name' => 'Member deposits', 'code' => 'D', 'ref_name' => null, 'categoryaccount_id' => '10']],
-            ['mainaccounts', 30, $account],
-            ['mainaccounts', 31, [...$account, 'name' => 'Other savings']],
+            ['mainaccounts', 30, [...$account, 'name' => 'Other savings']],
+            ['mainaccounts', 31, $account],
         ];
         foreach ($sources as [$table, $id, $data]) {
             DB::table('legacy_onboarding_rows')->insert([
@@ -55,8 +55,7 @@ class ChartOfAccountsTest extends TestCase
         $this->actingAs(User::factory()->create(['is_staff_admin' => true]))
             ->get('/staff/accounts?q=4310')
             ->assertOk()
-            ->assertSee('Member savings')
-            ->assertSee('Other savings')
+            ->assertSeeInOrder(['Member savings', 'Other savings'])
             ->assertSee('Liabilities')
             ->assertSee('Member deposits')
             ->assertSee('Shared code');

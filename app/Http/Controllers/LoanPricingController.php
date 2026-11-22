@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\LoanPricing;
+use App\TablePage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -10,21 +12,26 @@ use Illuminate\View\View;
 
 class LoanPricingController extends Controller
 {
-    public function edit(): View
+    public function edit(Request $request, LoanPricing $pricing): View
     {
-        $current = DB::table('loan_pricing_revisions')->orderByDesc('id')->first();
+        $data = $request->validate(['category' => ['nullable', 'integer', 'exists:loan_categories,id']]);
+        $categories = $pricing->categories();
+        $category = (int) ($data['category'] ?? $categories->first()->id);
+        $current = $pricing->current($category);
         $history = DB::table('loan_pricing_revisions as revision')
             ->join('users as admin', 'admin.id', '=', 'revision.changed_by')
-            ->select('revision.*', 'admin.name as actor')->orderByDesc('revision.id')->simplePaginate(25);
+            ->where(fn ($query) => $query->where('revision.loan_category_id', $category)->orWhereNull('revision.loan_category_id'))
+            ->select('revision.*', 'admin.name as actor')->orderByDesc('revision.id')->simplePaginate(TablePage::size());
 
-        return view('staff.loan-applications.pricing', compact('current', 'history'));
+        return view('staff.loan-applications.pricing', compact('current', 'history', 'categories', 'category'));
     }
 
-    public function update(Request $request): RedirectResponse
+    public function update(Request $request, LoanPricing $pricing): RedirectResponse
     {
         $percentage = ['required', 'numeric', 'decimal:0,2', 'between:0,100'];
         $charge = ['required', 'numeric', 'decimal:0,2', 'between:0,100000000000'];
         $data = $request->validate([
+            'loan_category_id' => ['required', 'integer', 'exists:loan_categories,id'],
             'current_revision' => ['required', 'integer', 'min:0'],
             'annual_rate' => $percentage,
             'interest_method' => ['required', 'in:reducing,flat'],
@@ -42,19 +49,21 @@ class LoanPricingController extends Controller
             'other_charges_minor' => $minorUnits($data['other_charges']),
         ];
 
-        $changed = DB::transaction(function () use ($request, $data, $values): bool {
-            DB::selectOne('SELECT pg_advisory_xact_lock(hashtext(?))', ['loan-pricing']);
-            $current = DB::table('loan_pricing_revisions')->orderByDesc('id')->first();
+        $category = (int) $data['loan_category_id'];
+        $changed = DB::transaction(function () use ($request, $data, $values, $pricing, $category): bool {
+            $pricing->lock($category, exclusive: true);
+            $current = $pricing->current($category);
             if ((int) $data['current_revision'] !== ($current->id ?? 0)) {
                 throw ValidationException::withMessages(['current_revision' => 'Pricing has changed. Review the current settings and try again.']);
             }
 
-            if ($current && array_intersect_key((array) $current, $values) === $values) {
+            if ($current?->loan_category_id === $category && array_intersect_key((array) $current, $values) === $values) {
                 return false;
             }
 
             DB::table('loan_pricing_revisions')->insert([
                 ...$values,
+                'loan_category_id' => $category,
                 'changed_by' => $request->user()->id,
                 'reason' => $data['reason'],
                 'changed_at' => now(),
@@ -63,7 +72,7 @@ class LoanPricingController extends Controller
             return true;
         }, 3);
 
-        return redirect()->route('staff.loan-pricing.edit')
+        return redirect()->route('staff.loan-pricing.edit', compact('category'))
             ->with('status', $changed ? 'Loan pricing saved.' : 'Pricing is already set to those values.');
     }
 }

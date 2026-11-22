@@ -61,6 +61,21 @@ class MemberFundsTest extends TestCase
         $reserved = app(MemberFunds::class)->balances($member);
         $this->assertSame(12500025, $reserved['savings']);
         $this->assertSame(9500000, $reserved['available']);
+        DB::table('members')->insert([
+            'first_name' => 'Unverified', 'last_name' => 'Member', 'registration_no' => 'UNKNOWN-1',
+            'email' => 'unverified@example.com', 'status' => 'active',
+        ]);
+        $this->get('/staff/member-savings')->assertForbidden();
+        $this->actingAs($admin)->get('/staff/member-savings')->assertOk()
+            ->assertSeeInOrder(['Asha Mushi', 'Unverified Member', 'Awaiting verified opening balances'])->assertSee('30,000.25')
+            ->assertViewHas('rows', fn ($rows): bool => $rows->contains(
+                fn ($row): bool => $row->id === $member && (int) $row->savings === $reserved['savings']
+                    && (int) $row->available === $reserved['available'],
+            ));
+        $this->get('/staff/member-savings?q=Asha%20Mushi', ['X-Requested-With' => 'XMLHttpRequest'])->assertOk()
+            ->assertSee('95,000.00')->assertSee($path)->assertDontSee('UNKNOWN-1')->assertDontSee('<!doctype html>', false);
+        $this->actingAs($reviewer);
+
         $this->assertSame('Available savings are below the required minimum.', app(LoanEligibility::class)->details($member)['reason']);
         $this->post("$url/pay", $pay)->assertForbidden();
 

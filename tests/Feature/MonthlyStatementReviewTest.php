@@ -81,4 +81,37 @@ class MonthlyStatementReviewTest extends TestCase
         $this->assertDatabaseEmpty('monthly_member_statements');
         Mail::assertNothingOutgoing();
     }
+
+    public function test_admin_can_queue_system_drafts_directly_after_rechecking_the_preview(): void
+    {
+        $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 11, 22)->setTime(12, 0));
+        Mail::fake();
+        $admin = User::factory()->create(['is_staff_admin' => true]);
+        $member = DB::table('members')->insertGetId([
+            'first_name' => 'Asha', 'last_name' => 'Member', 'registration_no' => '10415',
+            'email' => 'member@example.com', 'status' => 'active',
+        ]);
+        $balance = [
+            'member_id' => $member, 'as_of' => '2026-09-30', 'shares_minor' => 2000, 'savings_minor' => 50000,
+            'evidence_reference' => 'Opening', 'recorded_by' => $admin->id, 'recorded_at' => now(),
+        ];
+        DB::table('member_verified_balances')->insert($balance);
+
+        $path = '/staff/statement-review';
+        $review = ['period' => '2026-10', 'review_reference' => 'October checked by finance'];
+        $this->actingAs($admin)->post("$path/preview-drafts", $review)->assertRedirect("$path?period=2026-10#preview");
+        $this->get("$path?period=2026-10")->assertOk()->assertSee('System draft preview')->assertSee('500.00');
+        DB::table('member_verified_balances')->insert([...$balance, 'savings_minor' => 52000]);
+        $this->from("$path?period=2026-10")->post("$path/queue", ['token' => session('monthly_statement_review.token')])
+            ->assertSessionHasErrors('statements');
+        $this->assertDatabaseEmpty('monthly_member_statements');
+
+        $this->post("$path/preview-drafts", $review)->assertRedirect();
+        $this->post("$path/queue", ['token' => session('monthly_statement_review.token')])->assertRedirect("$path?period=2026-10");
+        $this->assertDatabaseHas('monthly_member_statements', [
+            'member_id' => $member, 'savings_balance_minor' => 52000, 'queued_by' => $admin->id,
+            'review_reference' => $review['review_reference'], 'delivery_status' => 'pending',
+        ]);
+        Mail::assertNothingOutgoing();
+    }
 }

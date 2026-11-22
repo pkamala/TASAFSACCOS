@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 
 use App\LoanEligibility;
 use App\LoanEvidence;
+use App\LoanPricing;
 use App\LoanSchedule;
 use App\Models\User;
+use App\TablePage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -23,11 +25,12 @@ class LoanApplicationController extends Controller
             ->where('application.status', 'submitted')
             ->join('members as member', 'member.id', '=', 'application.member_id')
             ->join('users as creator', 'creator.id', '=', 'application.created_by')
+            ->leftJoin('loan_categories as category', 'category.id', '=', 'application.loan_category_id')
             ->select([
                 'application.id', 'application.member_id', 'application.principal_minor',
-                'member.registration_no', 'member.first_name', 'member.last_name', 'creator.name as creator',
+                'category.name as category_name', 'member.registration_no', 'member.first_name', 'member.last_name', 'creator.name as creator',
             ])
-            ->orderBy('application.id')->simplePaginate(25);
+            ->orderByRaw('lower(member.first_name), lower(member.last_name)')->orderBy('application.id')->simplePaginate(TablePage::size());
 
         return view('staff.loan-applications.queue', compact('applications'));
     }
@@ -35,26 +38,37 @@ class LoanApplicationController extends Controller
     public function index(int $member): View
     {
         $profile = $this->member($member);
-        $applications = DB::table('loan_applications')->where('member_id', $member)
-            ->orderByDesc('id')->simplePaginate(25);
+        $applications = DB::table('loan_applications as application')->where('application.member_id', $member)
+            ->leftJoin('loan_categories as category', 'category.id', '=', 'application.loan_category_id')
+            ->orderByDesc('application.id')->simplePaginate(TablePage::size(), ['application.*', 'category.name as category_name']);
 
         return view('staff.loan-applications.index', compact('profile', 'applications'));
     }
 
-    public function create(int $member, LoanEligibility $eligibility): View
+    public function create(Request $request, int $member, LoanEligibility $eligibility, LoanPricing $prices): View
     {
         $profile = $this->member($member);
         abort_unless($profile->status === 'active', 403);
 
-        return view('staff.loan-applications.create', ['profile' => $profile, 'submissionId' => (string) Str::uuid(), 'eligibility' => $eligibility->details($member), 'pricing' => DB::table('loan_pricing_revisions')->orderByDesc('id')->first()]);
+        $selected = $request->validate(['category' => ['nullable', 'integer', 'exists:loan_categories,id']]);
+        $categories = $prices->categories();
+        $category = (int) ($selected['category'] ?? $categories->first()->id);
+
+        return view('staff.loan-applications.create', [
+            'profile' => $profile, 'submissionId' => (string) Str::uuid(), 'eligibility' => $eligibility->details($member),
+            'categories' => $categories, 'category' => $category,
+            'otherActiveLoans' => DB::table('loan_applications')->where('member_id', $member)->where('status', 'disbursed')->count(),
+            'pricing' => $prices->current($category),
+        ]);
     }
 
-    public function store(Request $request, int $member, LoanSchedule $calculator, LoanEligibility $eligibility): RedirectResponse
+    public function store(Request $request, int $member, LoanSchedule $calculator, LoanEligibility $eligibility, LoanPricing $prices): RedirectResponse
     {
         $data = $request->validate([
             'submission_id' => ['required', 'uuid'],
             'principal' => ['required', 'numeric', 'decimal:0,2', 'between:100,100000000000'],
             'pricing_revision_id' => ['required', 'integer', 'min:1'],
+            'loan_category_id' => ['required', 'integer', 'exists:loan_categories,id'],
             'insurance' => ['prohibited'],
             'processing_fee' => ['prohibited'],
             'other_charges' => ['prohibited'],
@@ -65,7 +79,7 @@ class LoanApplicationController extends Controller
         ]);
         $actor = $request->user()->id;
 
-        $id = DB::transaction(function () use ($data, $member, $actor, $calculator, $eligibility): int {
+        $id = DB::transaction(function () use ($data, $member, $actor, $calculator, $eligibility, $prices): int {
             DB::selectOne('SELECT pg_advisory_xact_lock(hashtext(?))', ['loan-application:'.Str::lower($data['submission_id'])]);
             $profile = DB::table('members')->lockForUpdate()->find($member);
             abort_if($profile === null, 404);
@@ -82,10 +96,11 @@ class LoanApplicationController extends Controller
 
             $qualification = $eligibility->requireEligible($member);
 
-            DB::selectOne('SELECT pg_advisory_xact_lock_shared(hashtext(?))', ['loan-pricing']);
-            $pricing = DB::table('loan_pricing_revisions')->orderByDesc('id')->first();
+            $category = (int) $data['loan_category_id'];
+            $prices->lock($category);
+            $pricing = $prices->current($category);
             if ($pricing === null || $pricing->id !== (int) $data['pricing_revision_id']) {
-                throw ValidationException::withMessages(['pricing_revision_id' => 'Review the current loan pricing before submitting.']);
+                throw ValidationException::withMessages(['pricing_revision_id' => 'Review the current pricing for the selected category before submitting.']);
             }
 
             $principal = (int) round((float) $data['principal'] * 100);
@@ -106,6 +121,7 @@ class LoanApplicationController extends Controller
                 'created_by' => $actor,
                 'annual_basis_points' => $pricing->annual_basis_points,
                 'loan_pricing_revision_id' => $pricing->id,
+                'loan_category_id' => $data['loan_category_id'],
                 'loan_eligibility_revision_id' => $qualification['minimums']->id,
                 'member_verified_balance_id' => $qualification['balance']->id,
                 'eligible_savings_minor' => $qualification['funds']['available'],
@@ -139,8 +155,9 @@ class LoanApplicationController extends Controller
         $profile = $this->member($member);
         $record = DB::table('loan_applications as application')->where('application.member_id', $member)
             ->join('users as creator', 'creator.id', '=', 'application.created_by')
+            ->leftJoin('loan_categories as category', 'category.id', '=', 'application.loan_category_id')
             ->where('application.id', $application)
-            ->first(['application.*', 'creator.name as creator']);
+            ->first(['application.*', 'creator.name as creator', 'category.name as category_name']);
         abort_if($record === null, 404);
 
         $installments = DB::table('loan_application_installments')->where('loan_application_id', $application)->orderBy('number')->get();
@@ -157,7 +174,7 @@ class LoanApplicationController extends Controller
             ->join('users as recorder', 'recorder.id', '=', 'receipt.recorded_by')
             ->where('loan_application_id', $application)
             ->select('receipt.*', 'recorder.name as recorder')
-            ->orderByDesc('receipt.id')->simplePaginate(15, ['*'], 'receipts_page');
+            ->orderByDesc('receipt.id')->simplePaginate(TablePage::size('receipts_page'), ['*'], 'receipts_page');
         $receiptAllocations = DB::table('loan_repayment_allocations')
             ->whereIn('loan_repayment_receipt_id', $receipts->getCollection()->pluck('id'))
             ->orderBy('installment_number')->get()->groupBy('loan_repayment_receipt_id');
@@ -170,7 +187,10 @@ class LoanApplicationController extends Controller
             && DB::table('member_exits')->where('member_id', $member)->where('status', 'approved')->exists();
         $mayReview = $record->status === 'submitted' && $this->reviewerMayDecide($request->user(), $member) && $request->user()->id !== $record->created_by;
 
-        return view('staff.loan-applications.show', compact('profile', 'record', 'installments', 'decision', 'disbursement', 'mayReview', 'paid', 'receipts', 'receiptAllocations', 'cancellation', 'mayCancelForExit'));
+        $otherActiveLoans = DB::table('loan_applications')->where('member_id', $member)->where('status', 'disbursed')
+            ->where('id', '<>', $application)->count();
+
+        return view('staff.loan-applications.show', compact('otherActiveLoans', 'profile', 'record', 'installments', 'decision', 'disbursement', 'mayReview', 'paid', 'receipts', 'receiptAllocations', 'cancellation', 'mayCancelForExit'));
     }
 
     public function review(Request $request, int $member, int $application, LoanEvidence $evidence, LoanEligibility $eligibility): RedirectResponse

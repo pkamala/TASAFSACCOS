@@ -3,6 +3,7 @@
 @section('content')
     <div class="page-intro">
         <a href="{{ route('staff.members.show', $profile->id) }}">Member profile</a>
+        <a href="{{ route('staff.member-savings.index') }}">All member savings</a>
         <h1>Member savings and shares</h1>
         <p>{{ $profile->first_name }} {{ $profile->last_name }} · {{ $profile->registration_no }}</p>
     </div>

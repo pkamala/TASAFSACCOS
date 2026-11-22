@@ -19,19 +19,14 @@
         </section>
         <section class="panel">
             <h2>Monthly TASAF payroll list</h2>
-            <p>Upload a repayment file, a savings and shares file, or both. The files form one list for approval. Enter amounts in TZS.</p>
-            <p><a href="{{ route('staff.loan-batches.repayment-template') }}">Download monthly repayment CSV template</a></p>
-            <p><a href="{{ route('staff.loan-batches.contribution-template') }}">Download monthly savings and shares CSV template</a></p>
-            <form method="POST" action="{{ route('staff.loan-batches.store') }}" class="fields" enctype="multipart/form-data">
+            <p>Generate deductions from outstanding installments due in this month and recurring savings and shares configured on member profiles.</p>
+            <p>Review the generated list before it is sent to TASAF Accounts. Installments from other months stay outside this list.</p>
+            <form method="POST" action="{{ route('staff.loan-batches.store') }}" class="fields">
                 @csrf
                 <input type="hidden" name="kind" value="repayment">
                 <label for="period">Payroll month</label>
-                <input id="period" name="period" type="month" required>
-                <label for="allocations">Loan installment allocations (CSV)</label>
-                <input type="file" id="allocations" name="allocations" accept=".csv,text/csv">
-                <label for="contributions">Savings and share amounts (CSV)</label>
-                <input type="file" id="contributions" name="contributions" accept=".csv,text/csv">
-                <button class="primary">Submit payroll list for review</button>
+                <input id="period" name="period" type="month" value="{{ is_string(old('period')) ? old('period') : now('Africa/Dar_es_Salaam')->format('Y-m') }}" required>
+                <button class="primary">Generate payroll list</button>
             </form>
         </section>
     </div>

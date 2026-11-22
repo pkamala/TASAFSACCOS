@@ -17,7 +17,7 @@
     @include('form-errors')
     <section class="panel print-register">
         <div class="table-wrap" tabindex="0" role="region" aria-label="Journal reversal lines">
-            <table>
+            <table data-table-pages>
                 <thead><tr><th scope="col">Source reference</th><th scope="col">Account</th><th scope="col" class="money">Debit (TZS)</th><th scope="col" class="money">Credit (TZS)</th></tr></thead>
                 <tbody>
                     @foreach ($lines as $line)

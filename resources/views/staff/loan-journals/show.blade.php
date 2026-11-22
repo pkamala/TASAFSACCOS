@@ -42,7 +42,7 @@
         <section class="panel stacked-panel print-register">
             <h2>{{ $posting ? 'Journal lines' : 'Preview journal lines' }}</h2>
             <div class="table-wrap" tabindex="0" role="region" aria-label="Loan journal lines">
-                <table>
+                <table data-table-pages>
                     <thead><tr><th scope="col">Loan</th><th scope="col">Date</th><th scope="col">Source reference</th><th scope="col">Account</th><th scope="col" class="money">Debit (TZS)</th><th scope="col" class="money">Credit (TZS)</th></tr></thead>
                     <tbody>
                         @foreach ($lines as $line)

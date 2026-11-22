@@ -95,6 +95,7 @@ label { font-weight: 650; font-size: .9rem; }
 small { color: var(--muted); font-weight: 400; margin-left: .3rem; }
 input, select, textarea, button { font: inherit; }
 input, select, textarea { padding: .72rem .8rem; border: 1px solid var(--md-outline); background: #fff; color: inherit; border-radius: var(--md-shape-small); min-width: 0; width: 100%; }
+.calculator input[readonly] { background: var(--md-surface-container-low); }
 input[type="checkbox"], input[type="radio"] { width: auto; accent-color: var(--md-primary); }
 .check-field { display: flex; align-items: center; gap: .5rem; margin-bottom: .6rem; }
 .fields .check-field input { margin: 0; }
@@ -186,3 +187,9 @@ textarea { resize: vertical; }
     min-height: 40rem;
     border: 1px solid var(--line);
 }
+
+.table-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin-top: .8rem; }
+.table-pagination .pagination { margin: 0; align-items: center; }
+.page-size { display: inline-flex; align-items: center; gap: .5rem; }
+.page-size select { width: auto; margin-left: .2rem; }
+@media screen { .outside-table-page { display: none; } }

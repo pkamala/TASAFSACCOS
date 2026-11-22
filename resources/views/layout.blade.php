@@ -9,6 +9,7 @@
     @endif
     <link rel="stylesheet" href="{{ asset('saccos.css') }}">
     <script src="{{ asset('saccos-nav.js') }}" defer></script>
+    <script src="{{ asset('saccos-tables.js') }}" defer></script>
 </head>
 <body>
     <a class="skip-link" href="#main-content">Skip to content</a>
@@ -40,10 +41,13 @@
                         <summary>Administration</summary>
                         <div class="nav-options">
                             @include('nav-link', ['destination' => 'staff.members.index', 'label' => 'Members'])
+                            @include('nav-link', ['destination' => 'staff.member-savings.index', 'label' => 'Member savings'])
+                            @include('nav-link', ['destination' => 'staff.loan-categories.index', 'label' => 'Loan categories'])
                             @include('nav-link', ['destination' => 'staff.accounts.index', 'label' => 'Chart of accounts'])
                             @include('nav-link', ['destination' => 'staff.loan-ledger.index', 'label' => 'Ledger'])
                             @include('nav-link', ['destination' => 'staff.board-roles.index', 'label' => 'Board roles'])
-                            @include('nav-link', ['destination' => 'staff.legacy-cutover', 'label' => 'Legacy cutover'])
+                            @include('nav-link', ['destination' => 'staff.data-imports.index', 'label' => 'Data imports'])
+                            @include('nav-link', ['destination' => 'staff.mailing-accounts.index', 'label' => 'Mailing accounts'])
                             @include('nav-link', ['destination' => 'staff.branding.edit', 'label' => 'Branding'])
                         </div>
                     </details>
@@ -59,6 +63,8 @@
             </nav>
         </div>
     </header>
-    <main class="container" id="main-content" tabindex="-1">@yield('content')</main>
+    <main class="container" id="main-content" tabindex="-1">
+        @if (config('app.demo_mode'))<p class="status" role="status">Demo environment · Practice transactions and provisional opening balances</p>@endif
+        @yield('content')</main>
 </body>
 </html>

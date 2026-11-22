@@ -10,17 +10,17 @@
     <section class="panel">
         <div class="table-wrap" tabindex="0" role="region" aria-label="Applications awaiting review">
             <table>
-                <thead><tr><th scope="col">Application</th><th scope="col">Member</th><th scope="col">Submitted by</th><th scope="col" class="money">Requested principal (TZS)</th></tr></thead>
+                <thead><tr><th scope="col">Application</th><th scope="col">Member</th><th scope="col">Category</th><th scope="col">Submitted by</th><th scope="col" class="money">Requested principal (TZS)</th></tr></thead>
                 <tbody>
                     @forelse ($applications as $application)
                         <tr>
                             <th scope="row"><a href="{{ route('staff.loan-applications.show', [$application->member_id, $application->id]) }}">{{ $application->id }}</a></th>
                             <td>{{ $application->registration_no }} · {{ $application->first_name }} {{ $application->last_name }}</td>
-                            <td>{{ $application->creator }}</td>
+                            <td>{{ $application->category_name ?? 'Uncategorized' }}</td><td>{{ $application->creator }}</td>
                             <td class="money">{{ number_format($application->principal_minor / 100, 2) }}</td>
                         </tr>
                     @empty
-                        <tr><td colspan="4">No applications awaiting review.</td></tr>
+                        <tr><td colspan="5">No applications awaiting review.</td></tr>
                     @endforelse
                 </tbody>
             </table>

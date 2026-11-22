@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\MemberFunds;
 use App\Models\User;
 use App\RecordMemberFundTransaction;
+use App\TablePage;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -24,7 +25,7 @@ class MemberFundsController extends Controller
             ->join('users as recorder', 'recorder.id', '=', 'transaction.recorded_by')
             ->leftJoin('member_fund_journals as journal', 'journal.member_fund_transaction_id', '=', 'transaction.id')
             ->where('transaction.member_id', $member)->orderByDesc('transaction.effective_on')->orderByDesc('transaction.id')
-            ->simplePaginate(25, ['transaction.*', 'recorder.name as actor', 'journal.id as journal_id']);
+            ->simplePaginate(TablePage::size(), ['transaction.*', 'recorder.name as actor', 'journal.id as journal_id']);
 
         return view('staff.member-funds', ['balances' => $funds->balances($member), ...compact('profile', 'history')]);
     }
@@ -53,7 +54,7 @@ class MemberFundsController extends Controller
     public function withdrawals(): View
     {
         $rows = DB::table('member_savings_withdrawals as withdrawal')->join('members', 'members.id', '=', 'withdrawal.member_id')
-            ->orderByDesc('withdrawal.id')->simplePaginate(25, [
+            ->orderByDesc('withdrawal.id')->simplePaginate(TablePage::size(), [
                 'withdrawal.id', 'withdrawal.amount_minor', 'withdrawal.status', 'members.registration_no', 'members.first_name', 'members.last_name',
             ]);
 

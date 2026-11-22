@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\LoanEligibility;
+use App\TablePage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,7 +16,7 @@ class MembershipControlsController extends Controller
     {
         $history = DB::table('loan_eligibility_revisions as revision')
             ->join('users as actor', 'actor.id', '=', 'revision.changed_by')
-            ->orderByDesc('revision.id')->simplePaginate(25, ['revision.*', 'actor.name as actor']);
+            ->orderByDesc('revision.id')->simplePaginate(TablePage::size(), ['revision.*', 'actor.name as actor']);
         $current = DB::table('loan_eligibility_revisions')->orderByDesc('id')->first();
 
         return view('staff.membership-minimums', compact('history', 'current'));
@@ -60,7 +61,7 @@ class MembershipControlsController extends Controller
         $history = DB::table('member_verified_balances as balance')
             ->join('users as actor', 'actor.id', '=', 'balance.recorded_by')
             ->where('balance.member_id', $member)->orderByDesc('balance.as_of')->orderByDesc('balance.id')
-            ->simplePaginate(25, ['balance.*', 'actor.name as actor']);
+            ->simplePaginate(TablePage::size(), ['balance.*', 'actor.name as actor']);
 
         return view('staff.member-verified-balances', ['eligibility' => $eligibility->details($member), ...compact('profile', 'history')]);
     }

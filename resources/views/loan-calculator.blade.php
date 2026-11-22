@@ -9,25 +9,26 @@
         <section class="panel details" aria-labelledby="details">
             <h2 id="details">Loan details</h2>
             @include('form-errors')
+            @if ($examplePricing)
+                <p class="note">This category uses example pricing until the administrator sets its terms.</p>
+            @endif
             <form method="GET" action="{{ route('loan.schedule') }}" class="fields">
+                @include('staff.loan-applications.category-picker')
                 <label for="amount">Loan amount (TZS)</label>
                 <input type="number" id="amount" name="amount" min="100" max="100000000000" step="0.01" value="{{ $inputs['amount'] }}" required>
                 <label for="rate">Annual interest rate (%)</label>
-                <input type="number" id="rate" name="rate" min="0" max="100" step="0.01" value="{{ $inputs['rate'] }}" required>
+                <input id="rate" value="{{ $annualRate }}" readonly>
                 <label for="months">Loan term (months)</label>
                 <input type="number" id="months" name="months" min="1" max="120" value="{{ $inputs['months'] }}" required>
                 <label for="method">Interest method</label>
-                <select id="method" name="method">
-                    <option value="reducing" @selected($inputs['method'] === 'reducing')>Reducing balance</option>
-                    <option value="flat" @selected($inputs['method'] === 'flat')>Flat rate</option>
-                </select>
+                <input id="method" value="{{ $method === 'flat' ? 'Flat rate' : 'Reducing balance' }}" readonly>
                 <label for="first_due_date">First payment date <small>Optional</small></label>
                 <input type="date" id="first_due_date" name="first_due_date" min="1900-01-01" max="2089-12-31" value="{{ $inputs['first_due_date'] }}">
                 <fieldset class="fields charges">
-                    <legend>Financed charges (TZS) <small>Optional</small></legend>
+                    <legend>Financed charges (TZS)</legend>
                     @foreach ($chargeLabels as $field => $label)
-                        <label for="{{ $field }}">{{ $label }}</label>
-                        <input type="number" id="{{ $field }}" name="{{ $field }}" min="0" max="100000000000" step="0.01" placeholder="0.00" value="{{ $inputs[$field] }}">
+                        <label for="{{ $field }}">{{ $label }} @if ($field === 'insurance') <small>{{ $insuranceRate }}% of the loan amount</small> @endif</label>
+                        <input id="{{ $field }}" value="{{ $charges[$field] === null ? '—' : number_format($charges[$field] / 100, 2) }}" readonly>
                     @endforeach
                 </fieldset>
                 <button class="primary">Calculate schedule</button>
@@ -55,7 +56,7 @@
                 @endif
                 <p class="note">Interest applies to the loan amount plus any financed charges. Installments may differ slightly due to rounding.</p>
                 <div class="table-wrap" tabindex="0" role="region" aria-label="Monthly repayment schedule">
-                    <table>
+                    <table data-table-pages>
                         <thead><tr><th scope="col">Month</th>@if ($inputs['first_due_date'])<th scope="col">Due date</th>@endif<th scope="col" class="money">Opening balance</th><th scope="col" class="money">Principal</th><th scope="col" class="money">Interest</th><th scope="col" class="money">Payment</th><th scope="col" class="money">Closing balance</th></tr></thead>
                         <tbody>
                         @foreach ($schedule['rows'] as $row)

@@ -1,5 +1,5 @@
 <div class="table-wrap stacked-panel" tabindex="0" role="region" aria-label="Financial report accounts">
-    <table>
+    <table data-table-pages>
         <thead><tr><th scope="col">Category</th><th scope="col">Account</th><th scope="col" class="money">Amount (TZS)</th></tr></thead>
         <tbody>
             @foreach ($sections as [$label, $accounts, $direction])

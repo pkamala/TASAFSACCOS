@@ -40,6 +40,6 @@
         @empty
             <p>No transfers posted.</p>
         @endforelse
-        {{ $history->links() }}
+        @include('staff.pagination', ['page' => $history])
     </section>
 @endsection

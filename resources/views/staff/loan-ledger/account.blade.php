@@ -18,7 +18,7 @@
             <div><dt>Closing balance</dt><dd>{{ $balance($closingBalance) }}</dd></div>
         </dl>
         <div class="table-wrap stacked-panel" tabindex="0" role="region" aria-label="Account journal lines">
-            <table>
+            <table data-table-pages>
                 <thead><tr><th scope="col">Date</th><th scope="col">Transaction</th><th scope="col">Source reference</th><th scope="col">Journal</th><th scope="col" class="money">Debit</th><th scope="col" class="money">Credit</th><th scope="col" class="money">Running balance</th></tr></thead>
                 <tbody>
                     @forelse ($entries as $row)

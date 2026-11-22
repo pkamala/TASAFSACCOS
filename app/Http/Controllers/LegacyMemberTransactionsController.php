@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\TablePage;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -36,7 +37,7 @@ class LegacyMemberTransactionsController extends Controller
             $rows->orderByRaw("data->>'date' DESC NULLS LAST");
         }
 
-        $transactions = $rows->orderByDesc('source_id')->simplePaginate(25)->appends(['section' => $section])
+        $transactions = $rows->orderByDesc('source_id')->simplePaginate(TablePage::size())->appends(['section' => $section])
             ->through(fn ($row): array => [
                 'id' => $row->source_id,
                 'data' => json_decode($row->data, true, flags: JSON_THROW_ON_ERROR),

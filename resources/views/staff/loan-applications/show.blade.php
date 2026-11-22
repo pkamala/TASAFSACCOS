@@ -8,7 +8,8 @@
             <a href="{{ route('staff.loan-applications.queue') }}">Loan review</a>
         @endcan
         <h1>Loan application {{ $record->id }}</h1>
-        <p>{{ $profile->first_name }} {{ $profile->last_name }} · {{ $profile->registration_no }} · {{ ucfirst($record->status) }}</p>
+        <p>{{ $profile->first_name }} {{ $profile->last_name }} · {{ $profile->registration_no }} · {{ ucfirst($record->status) }} · {{ $record->category_name ?? 'Uncategorized' }}</p>
+        @if ($otherActiveLoans)<p>Other active loans for this member: {{ $otherActiveLoans }}.</p>@endif
     </div>
     @if (session('status')) <p role="status">{{ session('status') }}</p> @endif
     @include('form-errors')
@@ -25,7 +26,7 @@
         </dl>
         <p class="note">Insurance {{ number_format($record->insurance_minor / 100, 2) }} TZS · Processing fee {{ number_format($record->processing_fee_minor / 100, 2) }} TZS · Other charges {{ number_format($record->other_charges_minor / 100, 2) }} TZS</p>
         <div class="table-wrap stacked-panel" tabindex="0" role="region" aria-label="Proposed repayment schedule">
-            <table>
+            <table data-table-pages>
                 <thead><tr><th scope="col">Month</th><th scope="col">Due date</th><th scope="col" class="money">Opening balance</th><th scope="col" class="money">Principal</th><th scope="col" class="money">Interest</th><th scope="col" class="money">Payment</th><th scope="col" class="money">Closing balance</th></tr></thead>
                 <tbody>
                     @foreach ($installments as $row)

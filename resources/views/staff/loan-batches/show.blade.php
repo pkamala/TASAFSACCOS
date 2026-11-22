@@ -16,7 +16,7 @@
         @endcan
     @endif
     <section class="panel print-register">
-        <div class="table-wrap"><table>
+        <div class="table-wrap"><table data-table-pages>
             <thead><tr><th scope="col">Transaction</th><th scope="col">Member</th><th scope="col" class="money">Amount (TZS)</th>@if ($record->kind === 'repayment')<th scope="col">Allocations (TZS)</th>@endif</tr></thead>
             <tbody>
                 @foreach ($items as $item)

@@ -2,7 +2,7 @@
 @section('title', 'Verified legacy loan balances')
 @section('content')
     <div class="page-intro">
-        <a href="{{ route('staff.loan-reconciliation.index') }}">Compare legacy balances</a>
+        <a href="{{ route('staff.data-imports.index') }}">Data imports</a>
         <h1>Verified legacy loan balances</h1>
         <p>Record finance-reviewed principal balances for a closed month. Monthly statement drafts use these figures for the selected month-end only.</p>
     </div>
@@ -15,7 +15,7 @@
             <li>Use one row per legacy loan ID, with the principal still outstanding in TZS at month-end. Enter zero for a cleared loan where the evidence confirms it.</li>
             <li>Include all applicable loans for each member. An unknown disbursement date requires review and a verified figure.</li>
         </ol>
-        <p><a href="{{ route('staff.loan-reconciliation.download') }}">Download the legacy balance report CSV template</a></p>
+        <p><a href="{{ route('staff.verified-legacy-loans.template') }}">Download the legacy balance report CSV template</a></p>
         @if ($snapshots)
             <form method="POST" action="{{ route('staff.verified-legacy-loans.preview') }}" enctype="multipart/form-data" class="fields search">
                 @csrf
@@ -30,7 +30,7 @@
                 <label for="evidence">Reconciled report or sign-off reference</label>
                 <textarea id="evidence" name="evidence" maxlength="500" required>{{ is_string(old('evidence')) ? old('evidence') : ($preview['evidence'] ?? '') }}</textarea>
                 <label for="report">Reviewed legacy balances (CSV)</label>
-                <input type="file" id="report" name="report" accept=".csv,text/csv" required>
+                <input type="file" id="report" name="report" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
                 <button class="primary">Run dry run</button>
             </form>
         @else
@@ -42,7 +42,7 @@
             <h2>Dry-run results · {{ $preview['asOf'] }}</h2>
             <p>{{ number_format($ready) }} ready · {{ number_format($recorded) }} already recorded · {{ number_format($exceptions) }} exceptions</p>
             <div class="table-wrap" tabindex="0" role="region" aria-label="Verified legacy loan preview">
-                <table>
+                <table data-table-pages>
                     <thead><tr><th scope="col">Legacy loan ID</th><th scope="col">Loan reference</th><th scope="col">Member number</th><th scope="col" class="money">Principal (TZS)</th><th scope="col">Result</th></tr></thead>
                     <tbody>
                         @foreach ($preview['plan'] as $row)

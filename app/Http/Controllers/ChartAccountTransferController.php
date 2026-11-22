@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\LedgerPeriods;
 use App\LedgerReportData;
+use App\TablePage;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -23,7 +24,7 @@ class ChartAccountTransferController extends Controller
         $history = DB::table('chart_account_transfers as transfer')
             ->join('users as actor', 'actor.id', '=', 'transfer.posted_by')
             ->where('transfer.original_account_id', $account)
-            ->orderByDesc('transfer.id')->simplePaginate(25, ['transfer.*', 'actor.name as actor']);
+            ->orderByDesc('transfer.id')->simplePaginate(TablePage::size(), ['transfer.*', 'actor.name as actor']);
 
         return view('staff.chart-account-transfer', compact('original', 'replacement', 'preview', 'today', 'history'));
     }

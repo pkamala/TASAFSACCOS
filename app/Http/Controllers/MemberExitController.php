@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\TablePage;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -16,7 +17,7 @@ class MemberExitController extends Controller
     public function index(): View
     {
         $exits = DB::table('member_exits as exit')->join('members as member', 'member.id', '=', 'exit.member_id')
-            ->orderByDesc('exit.id')->simplePaginate(25, [
+            ->orderByDesc('exit.id')->simplePaginate(TablePage::size(), [
                 'exit.id', 'exit.status', 'exit.requested_at', 'member.registration_no', 'member.first_name', 'member.last_name',
             ]);
 

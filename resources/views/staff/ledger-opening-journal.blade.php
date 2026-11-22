@@ -21,15 +21,15 @@
         <section class="panel admin-profile">
             <h2>Prepare the opening journal</h2>
             <p><a href="{{ route('staff.ledger-opening.template') }}">Download the opening journal CSV template</a></p>
-            <p>Use one row per account with a nonzero balance. Enter its legacy ID and account code, with a positive TZS amount on either the debit or credit side.</p>
+            <p>Use one row per active ledger account code. Enter a positive TZS amount on either the debit or credit side.</p>
             <form action="{{ route('staff.ledger-opening.preview') }}" method="POST" enctype="multipart/form-data" class="fields">
                 @csrf
                 <label for="effective_on">Cutover date</label>
                 <input id="effective_on" name="effective_on" type="date" value="{{ is_string(old('effective_on')) ? old('effective_on') : ($preview['effective_on'] ?? '') }}" required>
                 <label for="review_reference">Approved trial balance or sign-off reference</label>
                 <textarea id="review_reference" name="review_reference" maxlength="500" required>{{ is_string(old('review_reference')) ? old('review_reference') : ($preview['review_reference'] ?? '') }}</textarea>
-                <label for="opening_journal">Opening balances (CSV)</label>
-                <input id="opening_journal" name="opening_journal" type="file" accept=".csv,text/csv" required>
+                <label for="opening_journal">Opening balances (Excel or CSV)</label>
+                <input id="opening_journal" name="opening_journal" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
                 <button class="primary">Preview opening journal</button>
             </form>
         </section>
@@ -39,12 +39,12 @@
         <section class="panel stacked-panel print-register" id="opening-lines">
             <h2>{{ $posted ? 'Posted opening balances' : 'Preview · '.$preview['effective_on'] }}</h2>
             <div class="table-wrap" tabindex="0" role="region" aria-label="Opening journal lines">
-                <table>
+                <table data-table-pages>
                     <thead><tr><th scope="col">Legacy account ID</th><th scope="col">Account code</th><th scope="col">Account</th><th scope="col" class="money">Debit (TZS)</th><th scope="col" class="money">Credit (TZS)</th>@unless($posted)<th scope="col">Result</th>@endunless</tr></thead>
                     <tbody>
                         @foreach ($lines as $row)
                             <tr>
-                                <th scope="row">{{ $row['legacy_id'] }}</th><td>{{ $row['code'] }}</td><td>{{ $row['name'] ?? '—' }}</td>
+                                <th scope="row">{{ $row['legacy_id'] ?? '—' }}</th><td>{{ $row['code'] }}</td><td>{{ $row['name'] ?? '—' }}</td>
                                 <td class="money">{{ number_format(max(0, $row['signed_minor']) / 100, 2) }}</td>
                                 <td class="money">{{ number_format(max(0, -$row['signed_minor']) / 100, 2) }}</td>
                                 @unless($posted)<td>{{ $row['status'] }}</td>@endunless

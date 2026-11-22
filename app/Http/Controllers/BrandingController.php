@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\SiteBranding;
+use App\TablePage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -18,7 +19,7 @@ class BrandingController extends Controller
         $settings = $branding->current();
         $themes = SiteBranding::Themes;
         $history = DB::table('branding_revisions as revision')->join('users as actor', 'actor.id', '=', 'revision.changed_by')
-            ->orderByDesc('revision.id')->simplePaginate(15, ['revision.name', 'revision.mark', 'revision.theme', 'revision.logo_type', 'revision.changed_at', 'actor.name as actor']);
+            ->orderByDesc('revision.id')->simplePaginate(TablePage::size(), ['revision.name', 'revision.mark', 'revision.theme', 'revision.logo_type', 'revision.changed_at', 'actor.name as actor']);
 
         return view('staff.branding', compact('settings', 'themes', 'history'));
     }

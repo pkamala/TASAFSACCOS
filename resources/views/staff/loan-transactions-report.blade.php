@@ -46,7 +46,7 @@
             <section class="panel stacked-panel print-register" aria-labelledby="{{ $section }}">
                 <h2 id="{{ $section }}">{{ ucfirst($section) }} · {{ number_format($transactions->count()) }}</h2>
                 <div class="table-wrap" tabindex="0" role="region" aria-label="{{ ucfirst($section) }}">
-                    <table>
+                    <table data-table-pages>
                         <thead><tr>
                             <th scope="col">Date</th><th scope="col">Loan</th><th scope="col">Member</th><th scope="col">Reference</th>
                             <th scope="col" class="money">Amount (TZS)</th>

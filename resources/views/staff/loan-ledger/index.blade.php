@@ -20,7 +20,7 @@
 
     <section class="panel stacked-panel print-register">
         <div class="table-wrap" tabindex="0" role="region" aria-label="SACCOS ledger trial balance">
-            <table>
+            <table data-table-pages>
                 <thead>
                     <tr><th scope="col" rowspan="2">Account</th><th scope="colgroup" colspan="2">Opening balance</th><th scope="colgroup" colspan="2">Period movement</th><th scope="colgroup" colspan="2">Closing balance</th></tr>
                     <tr><th class="money" scope="col">Debit</th><th class="money" scope="col">Credit</th><th class="money" scope="col">Debit</th><th class="money" scope="col">Credit</th><th class="money" scope="col">Debit</th><th class="money" scope="col">Credit</th></tr>

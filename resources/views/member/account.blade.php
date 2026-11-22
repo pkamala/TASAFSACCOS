@@ -9,12 +9,12 @@
         <h2>My loan applications</h2>
         <div class="table-wrap" tabindex="0" role="region" aria-label="My loan applications">
             <table>
-                <thead><tr><th scope="col">Reference</th><th scope="col">Status</th><th scope="col" class="money">Requested amount (TZS)</th><th scope="col">Term (months)</th></tr></thead>
+                <thead><tr><th scope="col">Reference</th><th scope="col">Category</th><th scope="col">Status</th><th scope="col" class="money">Requested amount (TZS)</th><th scope="col">Term (months)</th></tr></thead>
                 <tbody>
                     @forelse ($loans as $loan)
-                        <tr><th scope="row">{{ $loan->id }}</th><td>{{ ucfirst($loan->status) }}</td><td class="money">{{ number_format($loan->principal_minor / 100, 2) }}</td><td>{{ $loan->term_months }}</td></tr>
+                        <tr><th scope="row">{{ $loan->id }}</th><td>{{ $loan->category_name ?? 'Uncategorized' }}</td><td>{{ ucfirst($loan->status) }}</td><td class="money">{{ number_format($loan->principal_minor / 100, 2) }}</td><td>{{ $loan->term_months }}</td></tr>
                     @empty
-                        <tr><td colspan="4">No new loan applications on your account.</td></tr>
+                        <tr><td colspan="5">No new loan applications on your account.</td></tr>
                     @endforelse
                 </tbody>
             </table>

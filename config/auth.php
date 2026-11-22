@@ -3,7 +3,6 @@
 use App\Models\User;
 
 return [
-    'local_member_setup' => (bool) env('LOCAL_MEMBER_ACCOUNT_SETUP', false),
 
     /*
     |--------------------------------------------------------------------------

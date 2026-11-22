@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\LocalMemberSetup;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -12,9 +11,9 @@ use Illuminate\View\View;
 
 class StaffSessionController extends Controller
 {
-    public function show(Request $request, LocalMemberSetup $setup): View
+    public function show(): View
     {
-        return view('staff.login', ['localSetupAvailable' => $setup->available($request)]);
+        return view('staff.login');
     }
 
     public function store(Request $request): RedirectResponse

@@ -18,21 +18,22 @@
         <p><a href="{{ route('staff.verified-balance-import.template') }}">Download verified opening balances CSV</a></p>
         <form method="POST" action="{{ route('staff.verified-balance-import.preview') }}" enctype="multipart/form-data" class="fields search">
             @csrf
-            <label for="opening_balances">Reviewed opening balances CSV</label>
-            <input type="file" id="opening_balances" name="opening_balances" accept=".csv,text/csv" required>
+            <label for="opening_balances">Reviewed opening balances (Excel or CSV)</label>
+            <input type="file" id="opening_balances" name="opening_balances" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
             <button class="primary">Run dry run</button>
         </form>
     </section>
     @if ($preview)
         <section class="panel stacked-panel" id="preview">
+            <p>Workbook totals · Savings TZS {{ number_format(array_sum(array_column($preview['rows'], 'savings_minor')) / 100, 2) }} · Shares TZS {{ number_format(array_sum(array_column($preview['rows'], 'shares_minor')) / 100, 2) }}.</p>
             <h2>Dry-run results</h2>
             <p>{{ number_format($ready) }} ready · {{ number_format($recorded) }} already recorded · {{ number_format($exceptions) }} exceptions</p>
             @if ($exceptions)
                 <p>Correct the flagged rows and upload the file again before applying.</p>
             @endif
             <div class="table-wrap" tabindex="0" role="region" aria-label="Opening balance import preview">
-                <table>
-                    <thead><tr><th scope="col">CSV row</th><th scope="col">Member</th><th scope="col">Legacy ID</th><th scope="col">Balance date</th><th scope="col" class="money">Savings (TZS)</th><th scope="col" class="money">Shares (TZS)</th><th scope="col">Evidence reference</th><th scope="col">Result</th></tr></thead>
+                <table data-table-pages>
+                    <thead><tr><th scope="col">Row</th><th scope="col">Member</th><th scope="col">Legacy ID</th><th scope="col">Balance date</th><th scope="col" class="money">Savings (TZS)</th><th scope="col" class="money">Shares (TZS)</th><th scope="col">Evidence reference</th><th scope="col">Result</th></tr></thead>
                     <tbody>
                         @foreach ($preview['plan'] as $row)
                             <tr>

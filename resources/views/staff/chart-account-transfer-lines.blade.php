@@ -1,4 +1,4 @@
-<table>
+<table data-table-pages>
     <thead>
         <tr><th scope="col">Account</th><th scope="col">Debit (TZS)</th><th scope="col">Credit (TZS)</th></tr>
     </thead>

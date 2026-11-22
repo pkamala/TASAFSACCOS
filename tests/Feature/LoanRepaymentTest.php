@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -44,10 +43,6 @@ class LoanRepaymentTest extends TestCase
         $chair = User::factory()->create(['board_role' => 'chairperson']);
         $payload = [
             'kind' => 'repayment', 'period' => '2026-11',
-            'allocations' => UploadedFile::fake()->createWithContent(
-                'payroll.csv',
-                "application_id,installment_number,principal_tzs,interest_tzs\n$loan,1,50,1\n$loan,2,50,1",
-            ),
         ];
 
         $this->actingAs($admin)->post("$path/repayments", [])->assertNotFound();
@@ -60,11 +55,22 @@ class LoanRepaymentTest extends TestCase
         $this->actingAs($chair)->post("$batchUrl/review", ['decision' => 'approved', 'review_note' => 'Payroll reviewed'])->assertRedirect($batchUrl);
         $this->assertDatabaseEmpty('loan_repayment_receipts');
         $this->actingAs($admin)->post("$batchUrl/confirm", $confirmation)->assertRedirect($batchUrl);
+        $this->assertDatabaseHas('loan_applications', ['id' => $loan, 'status' => 'disbursed']);
+        $this->assertDatabaseHas('loan_repayment_receipts', ['loan_batch_id' => $batch, 'loan_application_id' => $loan, 'amount_minor' => 5100]);
+        $this->assertDatabaseCount('loan_repayment_allocations', 1);
+        $this->from("$list/new")->post($list, $payload)->assertSessionHasErrors('batch');
+
+        $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 12, 22)->setTime(14, 0));
+        $this->post($list, [...$payload, 'period' => '2026-12'])->assertRedirect();
+        $december = DB::table('loan_batches')->where('period', '2026-12-01')->sole()->id;
+        $this->actingAs($chair)->post("$list/$december/review", ['decision' => 'approved', 'review_note' => 'December approved'])->assertRedirect();
+        $this->actingAs($admin)->post("$list/$december/confirm", [
+            'effective_date' => '2026-12-22', 'payroll_reference' => 'payroll-2',
+        ])->assertRedirect();
         $this->assertDatabaseHas('loan_applications', ['id' => $loan, 'status' => 'repaid']);
-        $this->assertDatabaseHas('loan_repayment_receipts', ['loan_batch_id' => $batch, 'loan_application_id' => $loan]);
-        $this->assertDatabaseCount('loan_repayment_receipts', 1);
+        $this->assertDatabaseCount('loan_repayment_receipts', 2);
         $this->assertDatabaseCount('loan_repayment_allocations', 2);
-        $this->get($path)->assertOk()->assertSee('PAYROLL-1')->assertSee('Repaid');
+        $this->get($path)->assertOk()->assertSee('PAYROLL-1')->assertSee('PAYROLL-2')->assertSee('Repaid');
         $this->get('/staff/loan-register?status=repaid')->assertOk()->assertSee('10415');
     }
 }

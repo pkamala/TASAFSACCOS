@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\TablePage;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -9,7 +10,7 @@ use Illuminate\View\View;
 
 class ChartOfAccountsController extends Controller
 {
-    public function __invoke(Request $request): View
+    public function __invoke(Request $request): View|string
     {
         $input = $request->validate([
             'q' => ['nullable', 'string', 'max:100'],
@@ -19,7 +20,7 @@ class ChartOfAccountsController extends Controller
         $search = $input['q'] ?? '';
         $status = $input['status'] ?? 'active';
         $category = $input['category'] ?? null;
-        $categories = DB::table('account_categories')->orderBy('name')->get(['id', 'name']);
+        $categories = DB::table('account_categories')->orderByRaw('lower(name)')->orderBy('id')->get(['id', 'name']);
         $duplicateCodes = DB::table('chart_accounts')->whereNull('retired_at')->select('code')->groupBy('code')->havingRaw('count(*) > 1');
 
         $accounts = DB::table('chart_accounts as account')
@@ -43,9 +44,11 @@ class ChartOfAccountsController extends Controller
                         ->orWhereLike('account.name_en', $term);
                 });
             })
-            ->orderBy('account.code')->orderBy('account.id')
-            ->simplePaginate(25)->appends(['q' => $search, 'category' => $category, 'status' => $status]);
+            ->orderByRaw('lower(account.name)')->orderBy('account.code')->orderBy('account.id')
+            ->simplePaginate(TablePage::size())->appends(['q' => $search, 'category' => $category, 'status' => $status]);
 
-        return view('staff.accounts', compact('accounts', 'categories', 'category', 'search', 'status'));
+        $view = view('staff.accounts', compact('accounts', 'categories', 'category', 'search', 'status'));
+
+        return $request->ajax() ? $view->fragment('table-results') : $view;
     }
 }

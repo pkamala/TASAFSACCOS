@@ -13,6 +13,8 @@ return [
     |
     */
 
+    'demo_mode' => (bool) env('APP_DEMO_MODE', false),
+
     'name' => env('APP_NAME', 'Laravel'),
 
     /*

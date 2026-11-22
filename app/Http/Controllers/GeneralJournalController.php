@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\LedgerPeriods;
+use App\TablePage;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -18,7 +19,7 @@ class GeneralJournalController extends Controller
     public function index(): View
     {
         $rows = DB::table('general_journals as journal')->join('users', 'users.id', '=', 'journal.posted_by')
-            ->orderByDesc('journal.id')->simplePaginate(25, ['journal.id', 'journal.transaction_date', 'journal.category', 'journal.source_reference', 'users.name as actor']);
+            ->orderByDesc('journal.id')->simplePaginate(TablePage::size(), ['journal.id', 'journal.transaction_date', 'journal.category', 'journal.source_reference', 'users.name as actor']);
 
         return view('staff.general-journals.index', compact('rows'));
     }

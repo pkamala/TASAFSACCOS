@@ -14,15 +14,23 @@
         @if ($eligibility['balance'])
             <p>Available savings: TZS {{ number_format($eligibility['funds']['available'] / 100, 2) }} · Share value: TZS {{ number_format($eligibility['funds']['shares'] / 100, 2) }}</p>
         @endif
+        @if ($otherActiveLoans)
+            <p>Other active loans for this member: {{ $otherActiveLoans }}.</p>
+        @endif
+        <form class="fields search" method="GET" action="{{ route('staff.loan-applications.create', $profile->id) }}">
+            @include('staff.loan-applications.category-picker')
+            <button type="submit">Load category pricing</button>
+        </form>
         @if ($eligibility['reason'])
             <p>{{ $eligibility['reason'] }} <a href="{{ route('staff.member-balances.index', $profile->id) }}">View verified balances</a></p>
         @elseif ($pricing)
-        <p>Pricing revision {{ $pricing->id }} · {{ number_format($pricing->annual_basis_points / 100, 2) }}% annual interest · {{ $pricing->interest_method === 'flat' ? 'Flat rate' : 'Reducing balance' }}.</p>
+        <p>{{ $categories->firstWhere('id', $category)->name }} · Pricing revision {{ $pricing->id }} · {{ number_format($pricing->annual_basis_points / 100, 2) }}% annual interest · {{ $pricing->interest_method === 'flat' ? 'Flat rate' : 'Reducing balance' }}.</p>
         <p>Insurance {{ number_format($pricing->insurance_basis_points / 100, 2) }}% of principal · Processing fee {{ number_format($pricing->processing_fee_minor / 100, 2) }} TZS · Other charges {{ number_format($pricing->other_charges_minor / 100, 2) }} TZS.</p>
         <form class="fields" method="POST" action="{{ route('staff.loan-applications.store', $profile->id) }}">
             @csrf
             <input type="hidden" name="submission_id" value="{{ $submissionId }}">
             <input type="hidden" name="pricing_revision_id" value="{{ $pricing->id }}">
+            <input type="hidden" name="loan_category_id" value="{{ $category }}">
             <label for="principal">Requested principal (TZS)</label>
             <input id="principal" name="principal" type="number" min="100" max="100000000000" step=".01" value="{{ is_scalar(old('principal')) ? old('principal') : '' }}" required>
             <label for="term_months">Term (months)</label>
@@ -32,7 +40,7 @@
             <button class="primary">Submit application</button>
         </form>
         @else
-            <p>Set <a href="{{ route('staff.loan-pricing.edit') }}">loan pricing</a> before submitting applications.</p>
+            <p>Set <a href="{{ route('staff.loan-pricing.edit', compact('category')) }}">loan pricing</a> before submitting applications.</p>
         @endif
     </section>
 @endsection

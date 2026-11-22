@@ -3,21 +3,28 @@
 namespace App\Console\Commands;
 
 use App\Mail\MonthlyMemberStatementMail;
+use App\StatementMailer;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Mail;
 use Throwable;
 
 class SendMonthlyMemberStatements extends Command
 {
     protected $signature = 'statements:send {period? : Closed month in YYYY-MM format, defaults to last month}
-        {--send : Deliver the pending statements by email}';
+        {--send : Deliver the pending statements by email}
+        {--scheduled : Apply the automatic delivery setting}';
 
     protected $description = 'Preview or send reviewed monthly member statements';
 
-    public function handle(): int
+    public function handle(StatementMailer $delivery): int
     {
+        if ($this->option('scheduled') && ! $delivery->shouldSendAutomatically()) {
+            $this->info('Automatic statement delivery is paused.');
+
+            return self::SUCCESS;
+        }
+
         $now = CarbonImmutable::now('Africa/Dar_es_Salaam');
         $period = $this->argument('period') ?? $now->subMonthNoOverflow()->format('Y-m');
         if (! preg_match('/\A[2-9]\d{3}-(?:0[1-9]|1[0-2])\z/', $period) || $period >= $now->format('Y-m')) {
@@ -33,9 +40,17 @@ class SendMonthlyMemberStatements extends Command
             return self::SUCCESS;
         }
 
-        $transport = config('mail.mailers.'.config('mail.default').'.transport');
-        if (! in_array($transport, config('statements.delivery_transports'), true)) {
+        $account = $delivery->selectedAccountId();
+        if (! $delivery->configured($account)) {
             $this->error('Configure a real mail transport before sending statements.');
+
+            return self::FAILURE;
+        }
+
+        try {
+            $mailer = $delivery->forDelivery($account);
+        } catch (Throwable) {
+            $this->error('The statement sender could not be initialized. Check the mailing account or server configuration.');
 
             return self::FAILURE;
         }
@@ -59,7 +74,7 @@ class SendMonthlyMemberStatements extends Command
             }
 
             try {
-                Mail::to($statement->recipient)->send(new MonthlyMemberStatementMail(
+                $mailer->to($statement->recipient)->send(new MonthlyMemberStatementMail(
                     $date->format('F Y'),
                     $date->endOfMonth()->format('d F Y'),
                     $statement->loan_balance_minor,

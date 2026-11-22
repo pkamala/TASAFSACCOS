@@ -40,7 +40,7 @@ class LoanLifecycleTest extends TestCase
         $applications = "/staff/members/$member/loan-applications";
         $this->actingAs($admin)->post($applications, [
             'submission_id' => (string) Str::uuid(), 'principal' => '1000.00',
-            'pricing_revision_id' => $pricing, 'term_months' => 1, 'first_due_date' => '2026-12-22',
+            'pricing_revision_id' => $pricing, 'loan_category_id' => DB::table('loan_categories')->where('name', 'Staff loan')->value('id'), 'term_months' => 1, 'first_due_date' => '2026-12-22',
         ])->assertRedirect();
         $loan = DB::table('loan_applications')->sole()->id;
         $application = "$applications/$loan";
@@ -65,11 +65,45 @@ class LoanLifecycleTest extends TestCase
         $this->get("$bankBatch/checklist")->assertOk()->assertContent($bankChecklist);
         $this->assertDatabaseHas('loan_applications', ['id' => $loan, 'status' => 'disbursed']);
 
+        $emergency = DB::table('loan_categories')->where('name', 'Emergency loan')->value('id');
+        $this->get("$applications/new")->assertOk()->assertSee('Other active loans for this member: 1');
+        $emergencyPricing = DB::table('loan_pricing_revisions')->insertGetId([
+            'loan_category_id' => $emergency, 'annual_basis_points' => 1500, 'interest_method' => 'reducing',
+            'insurance_basis_points' => 100, 'processing_fee_minor' => 1000, 'other_charges_minor' => 200,
+            'changed_by' => $admin->id, 'reason' => 'Emergency terms', 'changed_at' => now(),
+        ]);
+        $this->get("$applications/new?category=$emergency")->assertOk()->assertSee('15.00% annual interest');
+        $secondApplication = [
+            'submission_id' => (string) Str::uuid(), 'principal' => '250.00', 'pricing_revision_id' => $pricing,
+            'loan_category_id' => $emergency, 'term_months' => 1, 'first_due_date' => '2027-01-22',
+        ];
+        $this->from("$applications/new?category=$emergency")->post($applications, $secondApplication)
+            ->assertSessionHasErrors('pricing_revision_id');
+        $this->post($applications, [...$secondApplication, 'pricing_revision_id' => $emergencyPricing])->assertRedirect();
+        $this->assertDatabaseHas('loan_applications', ['id' => $loan, 'loan_pricing_revision_id' => $pricing, 'annual_basis_points' => 1000]);
+        $second = DB::table('loan_applications')->where('loan_category_id', $emergency)->sole()->id;
+        $this->assertDatabaseHas('loan_applications', [
+            'id' => $second, 'loan_pricing_revision_id' => $emergencyPricing, 'annual_basis_points' => 1500,
+            'insurance_minor' => 250, 'processing_fee_minor' => 1000, 'other_charges_minor' => 200,
+        ]);
+        $this->actingAs($chair)->post("$applications/$second/review", [
+            'decision' => 'approved', 'reason' => 'Emergency loan reviewed',
+            'minutes' => UploadedFile::fake()->createWithContent('minutes.pdf', $minutes),
+        ])->assertRedirect();
+        $this->actingAs($admin)->post($batches, ['kind' => 'disbursement', 'loan_ids' => [$second]])->assertRedirect();
+        $secondBatch = DB::table('loan_batches')->where('id', '<>', $disbursement)->sole()->id;
+        $this->actingAs($secretary)->post("$batches/$secondBatch/review", ['decision' => 'approved', 'review_note' => 'Checked emergency loan'])->assertRedirect();
+        $this->actingAs($admin)->post("$batches/$secondBatch/confirm", [
+            'effective_date' => '2026-11-22', 'references' => [$second => 'BANK-43'],
+            'bank_checklist' => UploadedFile::fake()->createWithContent('checklist.pdf', $bankChecklist),
+        ])->assertRedirect();
+        $this->assertSame(2, DB::table('loan_applications')->where('member_id', $member)->where('status', 'disbursed')->count());
+        $this->get("/staff/loan-register?status=disbursed&category=$emergency")->assertOk()
+            ->assertViewHas('loans', fn ($loans): bool => $loans->pluck('id')->all() === [$second]);
+
         $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 12, 22)->setTime(12, 0));
         $this->post($batches, [
             'kind' => 'repayment', 'period' => '2026-12',
-            'allocations' => UploadedFile::fake()->createWithContent('payroll.csv',
-                "application_id,installment_number,principal_tzs,interest_tzs\n$loan,1,1000.00,8.33\n"),
         ])->assertRedirect();
         $repayment = DB::table('loan_batches')->where('kind', 'repayment')->sole()->id;
         $payrollBatch = "$batches/$repayment";

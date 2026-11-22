@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class LoanCalculatorTest extends TestCase
@@ -11,6 +13,7 @@ class LoanCalculatorTest extends TestCase
 
     public function test_reducing_balance_schedule_keeps_the_payment_consistent_and_closes_the_loan(): void
     {
+        $this->pricing('reducing');
         $this->get('/loan-calculator?amount=1200000&rate=12&months=3&method=reducing&first_due_date=2028-01-31')
             ->assertOk()
             ->assertSee('Repayment schedule')
@@ -32,13 +35,15 @@ class LoanCalculatorTest extends TestCase
 
     public function test_flat_and_zero_interest_schedules_display_the_expected_totals(): void
     {
-        $this->get('/loan-calculator?amount=1200000&rate=12&months=6&method=flat')
+        $this->pricing('flat');
+        $this->get('/loan-calculator?amount=1200000&rate=12&months=6')
             ->assertOk()
             ->assertViewHas('schedule', fn (array $schedule): bool => $schedule['interest'] === 7200000
                 && $schedule['rows'][5]['interest'] === 1200000
                 && $schedule['rows'][5]['closing'] === 0);
 
-        $this->get('/loan-calculator?amount=100&rate=0&months=3&method=reducing')
+        $this->pricing('reducing', annual: 0);
+        $this->get('/loan-calculator?amount=100&rate=90&months=3&method=reducing')
             ->assertOk()
             ->assertViewHas('schedule', fn (array $schedule): bool => $schedule['total'] === 10000
                 && $schedule['rows'][1]['payment'] === 3334
@@ -47,11 +52,17 @@ class LoanCalculatorTest extends TestCase
 
     public function test_charges_increase_the_opening_balance_and_accrue_interest_under_both_methods(): void
     {
-        $query = 'amount=1000000&rate=12&months=12&insurance=20000.25&processing_fee=30000&other_charges=5000.75';
+        $query = 'amount=1000000&rate=99&months=12&method=unknown&insurance=-1&processing_fee=0.001&other_charges[]=2';
 
         foreach (['reducing', 'flat'] as $method) {
-            $this->get("/loan-calculator?$query&method=$method")
+            $this->pricing($method, 200, 3000000, 500100);
+            $this->get("/loan-calculator?$query")
                 ->assertOk()
+                ->assertSee('id="rate" value="12" readonly', false)
+                ->assertSee('id="method" value="'.($method === 'flat' ? 'Flat rate' : 'Reducing balance').'" readonly', false)
+                ->assertSee('id="insurance" value="20,000.00" readonly', false)
+                ->assertSee('id="processing_fee" value="30,000.00" readonly', false)
+                ->assertSee('id="other_charges" value="5,001.00" readonly', false)
                 ->assertSee('Total charges')
                 ->assertSee('55,001.00')
                 ->assertSee('Total financed')
@@ -63,14 +74,6 @@ class LoanCalculatorTest extends TestCase
         }
     }
 
-    public function test_invalid_charges_prevent_schedule_calculation(): void
-    {
-        $this->get('/loan-calculator?insurance=-1&processing_fee=0.001&other_charges[]=2')
-            ->assertOk()
-            ->assertViewHas('errors', fn ($errors): bool => $errors->has(['insurance', 'processing_fee', 'other_charges']))
-            ->assertViewHas('schedule', null);
-    }
-
     public function test_invalid_inputs_show_errors_without_a_schedule(): void
     {
         $this->get('/loan-calculator?months=0&amount[]=1000&rate=-5')
@@ -78,5 +81,14 @@ class LoanCalculatorTest extends TestCase
             ->assertSee('The months field must be between 1 and 120.')
             ->assertViewHas('schedule', null)
             ->assertDontSee('Repayment schedule');
+    }
+
+    private function pricing(string $method, int $insurance = 0, int $processing = 0, int $other = 0, int $annual = 1200): void
+    {
+        DB::table('loan_pricing_revisions')->insert([
+            'annual_basis_points' => $annual, 'interest_method' => $method, 'insurance_basis_points' => $insurance,
+            'processing_fee_minor' => $processing, 'other_charges_minor' => $other,
+            'changed_by' => User::factory()->create(['is_staff_admin' => true])->id, 'reason' => 'Approved pricing', 'changed_at' => now(),
+        ]);
     }
 }

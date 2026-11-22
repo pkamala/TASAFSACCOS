@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\LedgerPeriods;
+use App\TablePage;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -28,7 +29,7 @@ class LedgerPeriodController extends Controller
         $mayClose = ! $closed && $month < $today->format('Y-m') && array_sum($unposted) === 0;
         $history = DB::table('ledger_period_events as event')->where('event.period', $from)
             ->join('users as actor', 'actor.id', '=', 'event.recorded_by')
-            ->orderByDesc('event.id')->simplePaginate(25, ['event.*', 'actor.name as actor'])->appends(compact('month'));
+            ->orderByDesc('event.id')->simplePaginate(TablePage::size(), ['event.*', 'actor.name as actor'])->appends(compact('month'));
 
         return view('staff.ledger-periods', compact('month', 'from', 'to', 'unposted', 'closed', 'mayClose', 'history', 'reportTo'));
     }

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\LedgerPeriods;
+use App\TablePage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -25,7 +26,7 @@ class LedgerJournalReversalController extends Controller
     {
         $rows = DB::table('ledger_journal_reversals as reversal')
             ->join('users as actor', 'actor.id', '=', 'reversal.reversed_by')
-            ->orderByDesc('reversal.id')->simplePaginate(25, ['reversal.*', 'actor.name as actor']);
+            ->orderByDesc('reversal.id')->simplePaginate(TablePage::size(), ['reversal.*', 'actor.name as actor']);
 
         return view('staff.ledger-reversals.index', compact('rows'));
     }

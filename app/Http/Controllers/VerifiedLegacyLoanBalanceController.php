@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\LegacyLoanBalanceReport;
+use App\TablePage;
 use App\VerifiedLegacyLoanBalances;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
@@ -12,6 +13,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class VerifiedLegacyLoanBalanceController extends Controller
 {
@@ -27,9 +29,16 @@ class VerifiedLegacyLoanBalanceController extends Controller
             ->join('users as actor', 'actor.id', '=', 'balance.verified_by')
             ->selectRaw('balance.source_sha256, balance.as_of, balance.report_sha256, balance.evidence_reference, actor.name AS actor, max(balance.verified_at) AS verified_at, count(*) AS loan_count')
             ->groupBy('balance.source_sha256', 'balance.as_of', 'balance.report_sha256', 'balance.evidence_reference', 'actor.id')
-            ->orderByDesc('verified_at')->orderBy('balance.report_sha256')->simplePaginate(25);
+            ->orderByDesc('verified_at')->orderBy('balance.report_sha256')->simplePaginate(TablePage::size());
 
         return view('staff.verified-legacy-loan-balances', compact('snapshots', 'preview', 'ready', 'recorded', 'exceptions', 'history'));
+    }
+
+    public function template(): BinaryFileResponse
+    {
+        return response()->download(base_path('templates/loan-import/legacy_balance_report.csv'), 'legacy_balance_report.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
     }
 
     public function preview(Request $request, LegacyLoanBalanceReport $reports, VerifiedLegacyLoanBalances $verifier): RedirectResponse
