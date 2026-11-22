@@ -1,0 +1,66 @@
+@extends('layout')
+@section('title', 'Printable loan register')
+@section('content')
+    <div class="page-intro">
+        <a class="print-hide" href="{{ route('staff.loan-applications.queue') }}">Loan review</a>
+        <p class="print-only">TASAF SACCOS</p>
+        <h1>Loan register</h1>
+        <p>{{ $source === 'applications' ? 'New loan applications' : 'Legacy loans' }} · {{ $status !== null ? ucfirst($status) : 'All statuses' }} · {{ number_format($loans->count()) }} records</p>
+        <p class="note">Generated {{ $printedOn }} EAT @if ($source === 'legacy') · Statuses and principal from the legacy export @endif</p>
+    </div>
+    <section class="panel print-hide">
+        <form class="fields search" method="GET" action="{{ route('staff.loan-register') }}">
+            @include('form-errors')
+            <label for="status">Loan status</label>
+            <input type="hidden" name="source" value="{{ $source }}">
+            <select id="status" name="status">
+                <option value="">All statuses</option>
+                @foreach ($statuses as $option)
+                    <option value="{{ $option }}" @selected($option === $status)>{{ ucfirst($option) }}</option>
+                @endforeach
+            </select>
+            <button class="primary">Filter loans</button>
+        </form>
+        @can('manage-members')<p><a href="{{ route('staff.loan-register', ['source' => $source === 'legacy' ? 'applications' : 'legacy']) }}">{{ $source === 'legacy' ? 'View new loan applications' : 'View legacy loans' }}</a></p>@endcan
+        <button type="button" class="primary" onclick="window.print()">Print register</button>
+    </section>
+    <section class="panel stacked-panel print-register">
+        <div class="table-wrap" tabindex="0" role="region" aria-label="Loan register">
+            <table>
+                <thead><tr>
+                    <th scope="col">Reference</th><th scope="col">Member</th><th scope="col">Status</th>
+                    <th scope="col" class="money">Principal (TZS)</th><th scope="col">Term (months)</th>
+                    @if ($source === 'applications')
+                        <th scope="col">Annual interest</th><th scope="col">Method</th>
+                        <th scope="col" class="money">Financed charges (TZS)</th><th scope="col">First due date</th>
+                    @endif
+                </tr></thead>
+                <tbody>
+                    @forelse ($loans as $loan)
+                        <tr>
+                            <th scope="row">
+                                @if ($source === 'applications')
+                                    <a href="{{ route('staff.loan-applications.show', [$loan->member_id, $loan->id]) }}">{{ $loan->id }}</a>
+                                @else
+                                    <a href="{{ route('staff.legacy-loans.show', [$loan->member_id, $loan->id]) }}">{{ $loan->reference ?: $loan->id }}</a>
+                                @endif
+                            </th>
+                            <td class="register-name">{{ $loan->registration_no }} · {{ $loan->first_name }} {{ $loan->last_name }}</td>
+                            <td>{{ ucfirst($loan->status ?: 'Unknown') }}</td>
+                            <td class="money">{{ is_numeric($loan->principal) ? number_format((float) $loan->principal, 2) : '—' }}</td>
+                            <td>{{ $loan->term_months ?? '—' }}</td>
+                            @if ($source === 'applications')
+                                <td>{{ number_format((float) $loan->rate, 2) }}%</td>
+                                <td>{{ $loan->interest_method === 'flat' ? 'Flat rate' : 'Reducing balance' }}</td>
+                                <td class="money">{{ number_format((float) $loan->charges, 2) }}</td>
+                                <td>{{ $loan->first_due_date }}</td>
+                            @endif
+                        </tr>
+                    @empty
+                        <tr><td colspan="{{ $source === 'applications' ? 9 : 5 }}">No loans match this filter.</td></tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+    </section>
+@endsection

@@ -1,0 +1,184 @@
+<?php
+
+use App\Http\Controllers\AdminProfileController;
+use App\Http\Controllers\BoardRoleController;
+use App\Http\Controllers\BrandingController;
+use App\Http\Controllers\ChartAccountManagementController;
+use App\Http\Controllers\ChartAccountTransferController;
+use App\Http\Controllers\ChartOfAccountsController;
+use App\Http\Controllers\GeneralJournalController;
+use App\Http\Controllers\LedgerFinancialReportsController;
+use App\Http\Controllers\LedgerJournalReversalController;
+use App\Http\Controllers\LedgerOpeningJournalController;
+use App\Http\Controllers\LedgerPeriodController;
+use App\Http\Controllers\LegacyCutoverController;
+use App\Http\Controllers\LegacyLoanController;
+use App\Http\Controllers\LegacyLoanCorrectionController;
+use App\Http\Controllers\LegacyLoanReconciliationController;
+use App\Http\Controllers\LegacyMemberTransactionsController;
+use App\Http\Controllers\LoanApplicationController;
+use App\Http\Controllers\LoanBatchController;
+use App\Http\Controllers\LoanCalculatorController;
+use App\Http\Controllers\LoanJournalController;
+use App\Http\Controllers\LoanLedgerReportController;
+use App\Http\Controllers\LoanPricingController;
+use App\Http\Controllers\LoanRegisterController;
+use App\Http\Controllers\LoanTransactionsReportController;
+use App\Http\Controllers\MemberAccountController;
+use App\Http\Controllers\MemberExitController;
+use App\Http\Controllers\MemberFundJournalController;
+use App\Http\Controllers\MemberFundsController;
+use App\Http\Controllers\MemberProfileController;
+use App\Http\Controllers\MembershipControlsController;
+use App\Http\Controllers\MonthlyStatementDraftController;
+use App\Http\Controllers\MonthlyStatementReviewController;
+use App\Http\Controllers\StaffPasswordSetupController;
+use App\Http\Controllers\StaffSessionController;
+use App\Http\Controllers\VerifiedBalanceImportController;
+use App\Http\Controllers\VerifiedLegacyLoanBalanceController;
+use Illuminate\Support\Facades\Route;
+
+Route::get('/', LoanCalculatorController::class)->name('loan.calculator');
+Route::get('/loan-calculator', LoanCalculatorController::class)->name('loan.schedule');
+
+Route::get('/staff/login', [StaffSessionController::class, 'show'])->middleware('guest')->name('login');
+Route::post('/staff/login', [StaffSessionController::class, 'store'])->middleware(['guest', 'throttle:5,1'])->name('staff.login');
+Route::get('/staff/password-setup', [StaffPasswordSetupController::class, 'show'])
+    ->middleware(['guest', 'throttle:15,1'])->name('staff.password-setup');
+Route::post('/staff/password-setup', [StaffPasswordSetupController::class, 'store'])
+    ->middleware(['guest', 'throttle:5,1'])->name('staff.password-setup.store');
+Route::get('/staff/first-time-setup', [StaffPasswordSetupController::class, 'showLocal'])
+    ->middleware(['guest', 'throttle:15,1'])->name('staff.local-setup');
+Route::post('/staff/first-time-setup', [StaffPasswordSetupController::class, 'storeLocal'])
+    ->middleware(['guest', 'throttle:5,1'])->name('staff.local-setup.store');
+Route::post('/staff/logout', [StaffSessionController::class, 'destroy'])->middleware('auth')->name('staff.logout');
+
+Route::get('/member/account', MemberAccountController::class)->middleware(['auth', 'auth.session'])->name('member.account');
+
+Route::post('/member/savings-withdrawals', [MemberFundsController::class, 'requestWithdrawal'])->middleware(['auth', 'auth.session'])->name('member.savings-withdrawal');
+Route::post('/member/exit', [MemberExitController::class, 'storeOwn'])->middleware(['auth', 'auth.session'])->name('member.exit');
+
+Route::get('/branding/logo/{revision}', [BrandingController::class, 'logo'])->whereNumber('revision')->name('branding.logo');
+
+Route::prefix('staff')->name('staff.')->middleware(['auth', 'auth.session', 'can:manage-members'])->group(function (): void {
+    Route::get('/branding', [BrandingController::class, 'edit'])->name('branding.edit');
+    Route::patch('/branding', [BrandingController::class, 'update'])->name('branding.update');
+    Route::get('/members/{member}/funds', [MemberFundsController::class, 'index'])->whereNumber('member')->name('member-funds.index');
+    Route::post('/members/{member}/funds', [MemberFundsController::class, 'deposit'])->whereNumber('member')->name('member-funds.deposit');
+    Route::get('/membership-minimums', [MembershipControlsController::class, 'minimums'])->name('membership-minimums.index');
+    Route::patch('/membership-minimums', [MembershipControlsController::class, 'saveMinimums'])->name('membership-minimums.update');
+    Route::get('/verified-balance-import', [VerifiedBalanceImportController::class, 'index'])->name('verified-balance-import.index');
+    Route::get('/verified-balance-import/template', [VerifiedBalanceImportController::class, 'template'])->name('verified-balance-import.template');
+    Route::post('/verified-balance-import/preview', [VerifiedBalanceImportController::class, 'preview'])->name('verified-balance-import.preview');
+    Route::post('/verified-balance-import/apply', [VerifiedBalanceImportController::class, 'apply'])->name('verified-balance-import.apply');
+    Route::get('/members/{member}/verified-balances', [MembershipControlsController::class, 'balances'])->whereNumber('member')->name('member-balances.index');
+    Route::post('/members/{member}/verified-balances', [MembershipControlsController::class, 'saveBalances'])->whereNumber('member')->name('member-balances.store');
+    Route::get('/members/{member}/exit', [MemberExitController::class, 'create'])->whereNumber('member')->name('member-exits.create');
+    Route::post('/members/{member}/exit', [MemberExitController::class, 'store'])->whereNumber('member')->name('member-exits.store');
+    Route::get('/board-roles', [BoardRoleController::class, 'index'])->name('board-roles.index');
+    Route::patch('/board-roles/{role}', [BoardRoleController::class, 'update'])->whereIn('role', ['chairperson', 'secretary'])->name('board-roles.update');
+    Route::get('/member-fund-journals', [MemberFundJournalController::class, 'index'])->name('member-fund-journals.index');
+    Route::get('/member-fund-journals/{transaction}', [MemberFundJournalController::class, 'show'])->whereNumber('transaction')->name('member-fund-journals.show');
+    Route::post('/member-fund-journals/{transaction}/preview', [MemberFundJournalController::class, 'preview'])->whereNumber('transaction')->name('member-fund-journals.preview');
+    Route::post('/member-fund-journals/{transaction}/post', [MemberFundJournalController::class, 'post'])->whereNumber('transaction')->name('member-fund-journals.post');
+    Route::get('/ledger-financial-reports', LedgerFinancialReportsController::class)->name('ledger-financial-reports');
+    Route::get('/ledger-opening', [LedgerOpeningJournalController::class, 'index'])->name('ledger-opening.index');
+    Route::get('/ledger-opening/template', [LedgerOpeningJournalController::class, 'template'])->name('ledger-opening.template');
+    Route::post('/ledger-opening/preview', [LedgerOpeningJournalController::class, 'preview'])->name('ledger-opening.preview');
+    Route::post('/ledger-opening/post', [LedgerOpeningJournalController::class, 'post'])->name('ledger-opening.post');
+    Route::get('/ledger-periods', [LedgerPeriodController::class, 'index'])->name('ledger-periods.index');
+    Route::post('/ledger-periods', [LedgerPeriodController::class, 'record'])->name('ledger-periods.record');
+    Route::get('/general-journals', [GeneralJournalController::class, 'index'])->name('general-journals.index');
+    Route::get('/general-journals/new', [GeneralJournalController::class, 'create'])->name('general-journals.create');
+    Route::post('/general-journals/preview', [GeneralJournalController::class, 'preview'])->name('general-journals.preview');
+    Route::post('/general-journals/post', [GeneralJournalController::class, 'post'])->name('general-journals.post');
+    Route::get('/general-journals/{journal}', [GeneralJournalController::class, 'show'])->whereNumber('journal')->name('general-journals.show');
+    Route::get('/ledger-reversals', [LedgerJournalReversalController::class, 'index'])->name('ledger-reversals.index');
+    Route::get('/ledger-reversals/{reversal}', [LedgerJournalReversalController::class, 'show'])->whereNumber('reversal')->name('ledger-reversals.show');
+    Route::get('/ledger-reversals/{source}/{journal}', [LedgerJournalReversalController::class, 'preview'])
+        ->whereIn('source', ['loan', 'member-fund', 'general'])->whereNumber('journal')->name('ledger-reversals.preview');
+    Route::post('/ledger-reversals/{source}/{journal}', [LedgerJournalReversalController::class, 'store'])
+        ->whereIn('source', ['loan', 'member-fund', 'general'])->whereNumber('journal')->name('ledger-reversals.store');
+    Route::get('/loan-ledger', [LoanLedgerReportController::class, 'index'])->name('loan-ledger.index');
+    Route::get('/loan-ledger/accounts/{account}', [LoanLedgerReportController::class, 'account'])->whereNumber('account')->name('loan-ledger.account');
+    Route::get('/loan-journal', [LoanJournalController::class, 'index'])->name('loan-journal.index');
+    Route::get('/loan-journal/{batch}', [LoanJournalController::class, 'show'])->whereNumber('batch')->name('loan-journal.show');
+    Route::post('/loan-journal/{batch}/preview', [LoanJournalController::class, 'preview'])->whereNumber('batch')->name('loan-journal.preview');
+    Route::post('/loan-journal/{batch}/post', [LoanJournalController::class, 'post'])->whereNumber('batch')->name('loan-journal.post');
+    Route::get('/statement-review', [MonthlyStatementReviewController::class, 'index'])->name('statement-review.index');
+    Route::get('/statement-review/sample', [MonthlyStatementReviewController::class, 'sample'])->name('statement-review.sample');
+    Route::post('/statement-review/preview', [MonthlyStatementReviewController::class, 'preview'])->name('statement-review.preview');
+    Route::post('/statement-review/queue', [MonthlyStatementReviewController::class, 'queue'])->name('statement-review.queue');
+    Route::get('/statement-drafts', [MonthlyStatementDraftController::class, 'index'])->name('statement-drafts.index');
+    Route::get('/statement-drafts/download', [MonthlyStatementDraftController::class, 'download'])->name('statement-drafts.download');
+    Route::get('/loan-transactions', LoanTransactionsReportController::class)->name('loan-transactions');
+    Route::get('/accounts', ChartOfAccountsController::class)->name('accounts.index');
+    Route::get('/accounts/new', [ChartAccountManagementController::class, 'create'])->name('chart-accounts.create');
+    Route::post('/accounts', [ChartAccountManagementController::class, 'store'])->name('chart-accounts.store');
+    Route::get('/accounts/{account}', [ChartAccountManagementController::class, 'show'])->whereNumber('account')->name('chart-accounts.show');
+    Route::get('/accounts/{account}/replacement', [ChartAccountManagementController::class, 'replacement'])->whereNumber('account')->name('chart-accounts.replacement');
+    Route::post('/accounts/{account}/replacement', [ChartAccountManagementController::class, 'replace'])->whereNumber('account')->name('chart-accounts.replace');
+    Route::get('/accounts/{account}/balance-transfer', [ChartAccountTransferController::class, 'index'])->whereNumber('account')->name('chart-accounts.transfer');
+    Route::post('/accounts/{account}/balance-transfer/preview', [ChartAccountTransferController::class, 'preview'])->whereNumber('account')->name('chart-accounts.transfer-preview');
+    Route::post('/accounts/{account}/balance-transfer/post', [ChartAccountTransferController::class, 'post'])->whereNumber('account')->name('chart-accounts.transfer-post');
+    Route::get('/account-transfers/{transfer}', [ChartAccountTransferController::class, 'show'])->whereNumber('transfer')->name('chart-account-transfers.show');
+    Route::post('/accounts/{account}/retire', [ChartAccountManagementController::class, 'retire'])->whereNumber('account')->name('chart-accounts.retire');
+    Route::get('/legacy-cutover', LegacyCutoverController::class)->name('legacy-cutover');
+    Route::get('/loan-corrections', [LegacyLoanCorrectionController::class, 'index'])->name('loan-corrections.index');
+    Route::get('/loan-corrections/worklist', [LegacyLoanCorrectionController::class, 'worklist'])->name('loan-corrections.worklist');
+    Route::post('/loan-corrections/preview', [LegacyLoanCorrectionController::class, 'preview'])->name('loan-corrections.preview');
+    Route::post('/loan-corrections/apply', [LegacyLoanCorrectionController::class, 'apply'])->name('loan-corrections.apply');
+    Route::get('/loan-corrections/templates/{template}', [LegacyLoanCorrectionController::class, 'download'])->name('loan-corrections.download');
+    Route::get('/loan-reconciliation', [LegacyLoanReconciliationController::class, 'index'])->name('loan-reconciliation.index');
+    Route::post('/loan-reconciliation', [LegacyLoanReconciliationController::class, 'compare'])->name('loan-reconciliation.compare');
+    Route::get('/loan-reconciliation/template', [LegacyLoanReconciliationController::class, 'download'])->name('loan-reconciliation.download');
+    Route::get('/verified-legacy-loans', [VerifiedLegacyLoanBalanceController::class, 'index'])->name('verified-legacy-loans.index');
+    Route::post('/verified-legacy-loans/preview', [VerifiedLegacyLoanBalanceController::class, 'preview'])->name('verified-legacy-loans.preview');
+    Route::post('/verified-legacy-loans/apply', [VerifiedLegacyLoanBalanceController::class, 'apply'])->name('verified-legacy-loans.apply');
+    Route::get('/loan-pricing', [LoanPricingController::class, 'edit'])->name('loan-pricing.edit');
+    Route::patch('/loan-pricing', [LoanPricingController::class, 'update'])->name('loan-pricing.update');
+    Route::get('/members', [MemberProfileController::class, 'index'])->name('members.index');
+    Route::get('/members/{member}', [MemberProfileController::class, 'show'])->whereNumber('member')->name('members.show');
+    Route::get('/members/{member}/legacy-savings', LegacyMemberTransactionsController::class)->whereNumber('member')->name('legacy-member-transactions');
+    Route::get('/members/{member}/legacy-loans', [LegacyLoanController::class, 'index'])->whereNumber('member')->name('legacy-loans.index');
+    Route::get('/members/{member}/legacy-loans/{loan}', [LegacyLoanController::class, 'show'])->whereNumber(['member', 'loan'])->name('legacy-loans.show');
+    Route::prefix('members/{member}/loan-applications')->where(['member' => '[0-9]+'])->name('loan-applications.')->group(function (): void {
+        Route::get('/', [LoanApplicationController::class, 'index'])->name('index');
+        Route::get('/new', [LoanApplicationController::class, 'create'])->name('create');
+        Route::post('/', [LoanApplicationController::class, 'store'])->name('store');
+    });
+    Route::patch('/members/{member}', [MemberProfileController::class, 'update'])->whereNumber('member')->name('members.update');
+});
+
+Route::prefix('staff')->name('staff.')->middleware(['auth', 'auth.session', 'can:access-loan-workflow'])->group(function (): void {
+    Route::get('/profile', [AdminProfileController::class, 'edit'])->name('profile.edit');
+    Route::patch('/profile', [AdminProfileController::class, 'update'])->name('profile.update');
+    Route::get('/savings-withdrawals', [MemberFundsController::class, 'withdrawals'])->name('savings-withdrawals.index');
+    Route::get('/savings-withdrawals/{withdrawal}', [MemberFundsController::class, 'showWithdrawal'])->whereNumber('withdrawal')->name('savings-withdrawals.show');
+    Route::post('/savings-withdrawals/{withdrawal}/review', [MemberFundsController::class, 'review'])->whereNumber('withdrawal')->middleware('can:review-loans')->name('savings-withdrawals.review');
+    Route::post('/savings-withdrawals/{withdrawal}/pay', [MemberFundsController::class, 'pay'])->whereNumber('withdrawal')->middleware('can:manage-members')->name('savings-withdrawals.pay');
+    Route::get('/member-exits', [MemberExitController::class, 'index'])->name('member-exits.index');
+    Route::get('/member-exits/{exit}', [MemberExitController::class, 'show'])->whereNumber('exit')->name('member-exits.show');
+    Route::post('/member-exits/{exit}/review', [MemberExitController::class, 'review'])->whereNumber('exit')->middleware('can:review-loans')->name('member-exits.review');
+    Route::post('/member-exits/{exit}/finalize', [MemberExitController::class, 'finalize'])->whereNumber('exit')->middleware('can:manage-members')->name('member-exits.finalize');
+    Route::get('/loan-register', LoanRegisterController::class)->name('loan-register');
+    Route::get('/loan-applications', [LoanApplicationController::class, 'queue'])->name('loan-applications.queue');
+    Route::prefix('members/{member}/loan-applications/{application}')->where(['member' => '[0-9]+', 'application' => '[0-9]+'])
+        ->name('loan-applications.')->group(function (): void {
+            Route::get('/', [LoanApplicationController::class, 'show'])->name('show');
+            Route::post('/review', [LoanApplicationController::class, 'review'])->middleware('can:review-loans')->name('review');
+            Route::post('/cancel-for-exit', [LoanApplicationController::class, 'cancelForExit'])->middleware('can:review-loans')->name('cancel-for-exit');
+            Route::get('/minutes', [LoanApplicationController::class, 'minutes'])->name('minutes');
+        });
+    Route::prefix('loan-batches')->name('loan-batches.')->group(function (): void {
+        Route::get('/', [LoanBatchController::class, 'index'])->name('index');
+        Route::get('/repayment-template', [LoanBatchController::class, 'repaymentTemplate'])->middleware('can:manage-members')->name('repayment-template');
+        Route::get('/contribution-template', [LoanBatchController::class, 'contributionTemplate'])->middleware('can:manage-members')->name('contribution-template');
+        Route::get('/new', [LoanBatchController::class, 'create'])->middleware('can:manage-members')->name('create');
+        Route::post('/', [LoanBatchController::class, 'store'])->middleware('can:manage-members')->name('store');
+        Route::get('/{batch}', [LoanBatchController::class, 'show'])->whereNumber('batch')->name('show');
+        Route::post('/{batch}/review', [LoanBatchController::class, 'review'])->whereNumber('batch')->middleware('can:review-loans')->name('review');
+        Route::post('/{batch}/confirm', [LoanBatchController::class, 'confirm'])->whereNumber('batch')->middleware('can:manage-members')->name('confirm');
+        Route::get('/{batch}/checklist', [LoanBatchController::class, 'checklist'])->whereNumber('batch')->name('checklist');
+    });
+});
