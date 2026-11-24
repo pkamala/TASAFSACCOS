@@ -4,6 +4,10 @@
     <div class="page-intro">
         <h1>My membership</h1>
         <p>{{ $member->first_name }} {{ $member->last_name }} · {{ $member->registration_no }} · {{ ucfirst($member->status) }}</p>
+        @if ($member->status === 'active')
+            <a href="{{ route('member.loan-applications.create') }}">Apply for a loan</a>
+            <a href="#withdrawals-heading">Savings withdrawals</a>
+        @endif
         @include('member.tenure', ['joiningDate' => $member->joining_date, 'exitedOn' => $exit?->status === 'finalized' ? $exit->effective_on : null])
     </div>
     @if (session('status'))<p role="status">{{ session('status') }}</p>@endif
@@ -42,13 +46,18 @@
         </section>
     @endif
     <section class="panel">
-        <h2>My loans</h2>
+        <h2 id="member-loans-heading">My loans</h2>
         <div class="table-wrap" tabindex="0" role="region" aria-label="My loans">
             <table>
                 <thead><tr><th scope="col">Reference</th><th scope="col">Category</th><th scope="col">Status</th><th scope="col" class="money">Principal (TZS)</th><th scope="col">Term</th></tr></thead>
                 <tbody>
                     @forelse ($loans as $loan)
-                        <tr><th scope="row">{{ $loan->id }}</th><td>{{ $loan->category_name ?? 'Uncategorized' }}</td><td>{{ ucfirst($loan->status) }}</td><td class="money">{{ number_format($loan->principal_minor / 100, 2) }} @if ($loan->interest_method === 'scheduled')<small>At cutover</small>@endif</td><td>{{ $loan->term_months }} {{ $loan->interest_method === 'scheduled' ? 'installments at cutover' : 'months' }}</td></tr>
+                        <tr><th scope="row">{{ $loan->id }}</th><td>{{ $loan->category_name ?? 'Uncategorized' }}</td><td>{{ match (true) {
+                            $loan->status !== 'submitted' => ucfirst($loan->status),
+                            ! in_array($loan->approval_lane, \App\LoanApproval::PendingLanes, true) => 'Under review',
+                            (int) $loan->confirmed_sponsors < \App\LoanSponsorship::RequiredCount => 'Awaiting sponsor confirmations',
+                            default => 'Awaiting loan officer',
+                        } }}</td><td class="money">{{ number_format($loan->principal_minor / 100, 2) }} @if ($loan->interest_method === 'scheduled')<small>At cutover</small>@endif</td><td>{{ $loan->term_months }} {{ $loan->interest_method === 'scheduled' ? 'installments at cutover' : 'months' }}</td></tr>
                     @empty
                         <tr><td colspan="5">No loans on your account.</td></tr>
                     @endforelse
@@ -61,19 +70,44 @@
         <h2>Savings and shares</h2>
         @if ($balances['opening'])
             @include('member.fund-balances')
-            @if ($withdrawal)<p>Latest withdrawal · {{ ucfirst($withdrawal->status) }} · TZS {{ number_format($withdrawal->amount_minor / 100, 2) }}</p>@endif
-            @if ($member->status === 'active' && $balances['available'] > 0 && ! in_array($withdrawal->status ?? null, ['requested', 'approved'], true) && ! in_array($exit->status ?? null, ['requested', 'approved'], true))
-                <form method="POST" class="fields search" action="{{ route('member.savings-withdrawal') }}">
-                    @csrf
-                    <label for="withdrawal-amount">Savings withdrawal amount (TZS)</label>
-                    <input id="withdrawal-amount" name="amount" type="number" min="0.01" step="0.01" required>
-                    <label for="withdrawal-reason">Reason for withdrawal</label>
-                    <textarea id="withdrawal-reason" name="reason" maxlength="500" required></textarea>
-                    <button class="primary">Request savings withdrawal</button>
-                </form>
-            @endif
         @else
             <p>Your opening savings and share balances are awaiting verification.</p>
+        @endif
+    </section>
+    <section class="panel stacked-panel" aria-labelledby="withdrawals-heading">
+        <h2 id="withdrawals-heading">Savings withdrawals</h2>
+        @if ($member->status === 'active' && $balances['available'] > 0 && ! in_array($withdrawal->status ?? null, ['requested', 'approved'], true) && ! in_array($exit->status ?? null, ['requested', 'approved'], true))
+            <form method="POST" class="fields search" action="{{ route('member.savings-withdrawal') }}">
+                @csrf
+                <label for="withdrawal-amount">Amount (TZS)</label>
+                <input id="withdrawal-amount" name="amount" type="number" min="0.01" step="0.01" value="{{ is_scalar(old('amount')) ? old('amount') : '' }}" required>
+                <label for="withdrawal-reason">Reason for withdrawal</label>
+                <textarea id="withdrawal-reason" name="reason" maxlength="500" required>{{ is_string(old('reason')) ? old('reason') : '' }}</textarea>
+                <button class="primary">Request savings withdrawal</button>
+            </form>
+        @elseif (in_array($withdrawal->status ?? null, ['requested', 'approved'], true))
+            <p>Your current request must be resolved before you can submit another.</p>
+        @elseif ($member->status === 'active' && ! ($balances['available'] > 0))
+            <p>A withdrawal requires available savings.</p>
+        @endif
+        @if ($withdrawals->isNotEmpty() || $withdrawals->currentPage() > 1)
+            <h3>Withdrawal history</h3>
+            <div class="table-wrap" tabindex="0" role="region" aria-label="Withdrawal history">
+                <table>
+                    <thead><tr><th scope="col">Reference</th><th scope="col">Date requested</th><th scope="col" class="money">Amount (TZS)</th><th scope="col">Status</th></tr></thead>
+                    <tbody>
+                        @foreach ($withdrawals as $withdrawalRecord)
+                            <tr id="withdrawal-{{ $withdrawalRecord->id }}">
+                                <th scope="row">{{ $withdrawalRecord->id }}</th>
+                                <td>{{ \Carbon\CarbonImmutable::parse($withdrawalRecord->requested_at)->setTimezone('Africa/Dar_es_Salaam')->format('d M Y') }}</td>
+                                <td class="money">{{ number_format($withdrawalRecord->amount_minor / 100, 2) }}</td>
+                                <td>{{ ucfirst($withdrawalRecord->status) }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+            @include('staff.pagination', ['page' => $withdrawals])
         @endif
     </section>
     <section class="panel stacked-panel">

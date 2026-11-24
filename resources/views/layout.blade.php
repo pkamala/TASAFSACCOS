@@ -68,6 +68,7 @@
                     </details>
                 @endcan
                 @if (auth()->user()?->member_id)
+                    <a href="{{ route('member.notifications.index') }}" data-task-count-url="{{ route('member.notifications.count', [], false) }}" @if (request()->routeIs('member.notifications.index')) aria-current="page" @endif>Notifications <span class="task-count" data-task-count hidden></span></a>
                     @include('nav-link', ['destination' => 'member.account', 'label' => 'My membership'])
                 @endif
                 @auth

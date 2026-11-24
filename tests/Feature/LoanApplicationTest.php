@@ -178,6 +178,75 @@ class LoanApplicationTest extends TestCase
             ->assertSessionHasErrors('principal');
     }
 
+    public function test_member_self_service_submits_for_the_signed_in_member_and_notifies_only_nominated_sponsors(): void
+    {
+        $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 11, 22));
+        $accounts = [];
+        foreach (['BORROWER', 'SPONSOR-1', 'SPONSOR-2', 'OTHER'] as $number) {
+            $member = DB::table('members')->insertGetId([
+                'first_name' => $number, 'last_name' => 'Member', 'registration_no' => $number,
+                'email' => "$number@example.com", 'status' => 'active', 'joining_date' => '2025-01-01',
+            ]);
+            $accounts[$number] = User::factory()->create(['member_id' => $member]);
+        }
+        $borrower = $accounts['BORROWER'];
+        $admin = User::factory()->create(['is_staff_admin' => true]);
+        $pricing = DB::table('loan_pricing_revisions')->insertGetId([
+            'annual_basis_points' => 1000, 'interest_method' => 'flat', 'insurance_basis_points' => 0,
+            'processing_fee_minor' => 0, 'other_charges_minor' => 0,
+            'changed_by' => $admin->id, 'reason' => 'Approved pricing', 'changed_at' => now(),
+        ]);
+        DB::table('loan_eligibility_revisions')->insert([
+            'min_savings_minor' => 0, 'min_shares_minor' => 50000000, 'changed_by' => $admin->id,
+            'reason' => 'Approved minimums', 'changed_at' => now(),
+        ]);
+        DB::table('member_verified_balances')->insert([
+            'member_id' => $borrower->member_id, 'as_of' => '2026-11-21', 'savings_minor' => 100000, 'shares_minor' => 50000000,
+            'evidence_reference' => 'Reviewed opening', 'recorded_by' => $admin->id, 'recorded_at' => now(),
+        ]);
+        $path = '/member/loan-applications';
+
+        $this->get("$path/new")->assertRedirect('/staff/login');
+        $this->actingAs($admin)->get("$path/new")->assertForbidden();
+        $this->actingAs($borrower)->get('/member/account')->assertOk()->assertSee('Apply for a loan');
+        $this->get("$path/new")->assertOk()->assertSee('Submit application')->assertDontSee('Choose sponsor 1');
+        $this->post($path, [
+            'member_id' => $accounts['OTHER']->member_id, 'submission_id' => (string) Str::uuid(), 'principal' => '1000',
+            'sponsors' => ['SPONSOR-1', 'SPONSOR-2'], 'pricing_revision_id' => $pricing,
+            'loan_category_id' => DB::table('loan_categories')->where('name', 'Staff loan')->value('id'),
+            'term_months' => 3, 'first_due_date' => '2026-12-22',
+        ])->assertRedirect('/member/account#member-loans-heading');
+        $loan = DB::table('loan_applications')->sole();
+        $this->assertSame($borrower->member_id, $loan->member_id);
+        $this->assertSame($borrower->id, $loan->created_by);
+        $this->get('/member/account')->assertOk()->assertSee('Awaiting sponsor confirmations');
+
+        $this->actingAs($accounts['OTHER'])->get('/member/notifications')->assertOk()->assertSee('No notifications yet.');
+        $sponsor = $accounts['SPONSOR-1'];
+        $this->actingAs($sponsor)->getJson('/member/notifications/count')->assertExactJson(['count' => 1]);
+        $this->get('/member/notifications')->assertOk()->assertSee('Confirm sponsorship for loan application '.$loan->id);
+        $nomination = DB::table('loan_sponsorships')->where('member_id', $sponsor->member_id)->sole();
+        $this->post("/member/loan-sponsorships/$nomination->id/confirm")->assertRedirect('/member/account');
+        $this->getJson('/member/notifications/count')->assertExactJson(['count' => 0]);
+        $this->get('/member/notifications')->assertOk()->assertDontSee('Confirm sponsorship for loan application');
+
+        $secondSponsor = $accounts['SPONSOR-2'];
+        $secondNomination = DB::table('loan_sponsorships')->where('member_id', $secondSponsor->member_id)->sole();
+        $this->actingAs($secondSponsor)->post("/member/loan-sponsorships/$secondNomination->id/confirm")->assertRedirect('/member/account');
+        $staffPath = "/staff/members/$borrower->member_id/loan-applications/$loan->id";
+        $this->actingAs($admin)->post("$staffPath/recommend", [
+            'recommendation' => 'approve', 'recommendation_note' => 'Reviewed the member’s request',
+        ])->assertRedirect($staffPath);
+        $reviewer = $accounts['OTHER'];
+        $reviewer->loan_workflow_roles = ['committee'];
+        $reviewer->save();
+        $this->actingAs($reviewer)->post("$staffPath/review", [
+            'decision' => 'approved', 'reason' => 'Committee approved',
+        ])->assertRedirect($staffPath);
+        $this->actingAs($borrower)->get('/member/notifications')->assertOk()->assertSee("Loan $loan->id · Approved");
+        $this->actingAs($sponsor)->get('/member/notifications')->assertOk()->assertDontSee("Loan $loan->id · Approved");
+    }
+
     public function test_sponsor_picker_only_returns_eligible_members_to_staff(): void
     {
         $members = [];

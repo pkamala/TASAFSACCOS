@@ -23,9 +23,7 @@ document.addEventListener('keydown', event => {
     }
 });
 
-const taskLink = navigation?.querySelector('[data-task-count-url]');
-
-if (taskLink) {
+navigation?.querySelectorAll('[data-task-count-url]').forEach(taskLink => {
     const badge = taskLink.querySelector('[data-task-count]');
     let loading = false;
 
@@ -49,4 +47,4 @@ if (taskLink) {
     refresh();
     document.addEventListener('visibilitychange', refresh);
     window.setInterval(refresh, 60000);
-}
+});

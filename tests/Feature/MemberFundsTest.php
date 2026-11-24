@@ -83,7 +83,8 @@ class MemberFundsTest extends TestCase
             'signed_minor' => -3000025, 'recorded_by' => $admin->id,
         ]);
         $this->get($url)->assertOk()->assertSee('PAYOUT-1');
-        $this->actingAs($owner)->get('/member/account')->assertOk()->assertSee('95,000.00')->assertSee('Latest withdrawal');
+        $this->actingAs($owner)->get('/member/account')->assertOk()->assertSee('95,000.00')->assertSee('Withdrawal history');
+        $this->get('/member/notifications')->assertOk()->assertSee("Withdrawal $withdrawal · Paid");
         $balance = app(MemberFunds::class)->balances($member);
         $this->assertSame(9500000, $balance['savings']);
         $this->assertSame(0, $balance['reserved']);

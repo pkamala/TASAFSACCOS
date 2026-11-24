@@ -64,8 +64,10 @@ class LoanApplicationController extends Controller
         return view('staff.loan-applications.index', compact('profile', 'applications'));
     }
 
-    public function create(Request $request, int $member, LoanPricing $prices): View
+    public function create(Request $request, LoanPricing $prices, ?int $member = null): View
     {
+        $selfService = $member === null;
+        $member ??= $this->ownMember($request);
         $profile = $this->member($member);
         abort_unless($profile->status === 'active', 403);
 
@@ -74,15 +76,17 @@ class LoanApplicationController extends Controller
         $category = (int) ($selected['category'] ?? $categories->first()->id);
 
         return view('staff.loan-applications.create', [
-            'profile' => $profile, 'submissionId' => (string) Str::uuid(),
+            'selfService' => $selfService, 'profile' => $profile, 'submissionId' => (string) Str::uuid(),
             'categories' => $categories, 'category' => $category,
             'otherActiveLoans' => DB::table('loan_applications')->where('member_id', $member)->where('status', 'disbursed')->count(),
             'pricing' => $prices->current($category),
         ]);
     }
 
-    public function store(Request $request, int $member, LoanSchedule $calculator, LoanEligibility $eligibility, LoanPricing $prices, LoanApproval $approval, LoanSponsorship $sponsorship): RedirectResponse
+    public function store(Request $request, LoanSchedule $calculator, LoanEligibility $eligibility, LoanPricing $prices, LoanApproval $approval, LoanSponsorship $sponsorship, ?int $member = null): RedirectResponse
     {
+        $selfService = $member === null;
+        $member ??= $this->ownMember($request);
         $data = $request->validate([
             ...$sponsorship->rules(),
             'submission_id' => ['required', 'uuid'],
@@ -169,6 +173,11 @@ class LoanApplicationController extends Controller
 
             return $application;
         }, 3);
+
+        if ($selfService) {
+            return redirect()->route('member.account')->withFragment('member-loans-heading')
+                ->with('status', "Loan application $id submitted. Both sponsors need to confirm before it can be forwarded.");
+        }
 
         return redirect()->route('staff.loan-applications.show', [$member, $id]);
     }
@@ -362,6 +371,14 @@ class LoanApplicationController extends Controller
             'secretary' => $reviewer->board_role === 'chairperson',
             default => true,
         };
+    }
+
+    private function ownMember(Request $request): int
+    {
+        $user = $request->user();
+        abort_if($user->member_id === null || $user->is_staff_admin, 403);
+
+        return $user->member_id;
     }
 
     private function member(int $id): stdClass

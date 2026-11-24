@@ -39,6 +39,7 @@ use App\Http\Controllers\MemberFundJournalController;
 use App\Http\Controllers\MemberFundsController;
 use App\Http\Controllers\MemberLoginController;
 use App\Http\Controllers\MemberNextOfKinController;
+use App\Http\Controllers\MemberNotificationController;
 use App\Http\Controllers\MemberProfileController;
 use App\Http\Controllers\MemberSavingsController;
 use App\Http\Controllers\MembershipControlsController;
@@ -68,6 +69,13 @@ Route::post('/staff/logout', [StaffSessionController::class, 'destroy'])->middle
 Route::post('/member/loan-sponsorships/{nomination}/confirm', [LoanSponsorshipController::class, 'confirm'])
     ->whereNumber('nomination')->middleware(['auth', 'auth.session'])->name('member.loan-sponsorships.confirm');
 Route::get('/member/account', MemberAccountController::class)->middleware(['auth', 'auth.session'])->name('member.account');
+
+Route::prefix('member')->name('member.')->middleware(['auth', 'auth.session'])->group(function (): void {
+    Route::get('/notifications', [MemberNotificationController::class, 'index'])->name('notifications.index');
+    Route::get('/notifications/count', [MemberNotificationController::class, 'count'])->name('notifications.count');
+    Route::get('/loan-applications/new', [LoanApplicationController::class, 'create'])->name('loan-applications.create');
+    Route::post('/loan-applications', [LoanApplicationController::class, 'store'])->name('loan-applications.store');
+});
 
 Route::post('/member/savings-withdrawals', [MemberFundsController::class, 'requestWithdrawal'])->middleware(['auth', 'auth.session'])->name('member.savings-withdrawal');
 Route::post('/member/exit', [MemberExitController::class, 'storeOwn'])->middleware(['auth', 'auth.session'])->name('member.exit');
