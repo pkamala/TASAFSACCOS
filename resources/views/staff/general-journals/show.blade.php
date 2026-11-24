@@ -3,6 +3,10 @@
 @section('content')
     <div class="page-intro">
         <a class="print-hide" href="{{ route('staff.general-journals.index') }}">General journals</a>
+        @if (request()->boolean('cash_book'))
+            <a class="print-hide" href="{{ route('staff.cash-book.index', ['from' => $record->transaction_date, 'to' => $record->transaction_date]) }}">View cash book for this date</a>
+            <a class="print-hide" href="{{ route('staff.cash-book.transactions.create') }}">Record another past transaction</a>
+        @endif
         <h1>General journal #{{ $record->id }}</h1>
         <p>{{ $record->transaction_date }} · {{ ucfirst($record->category) }} · {{ $record->source_reference }}</p>
         <p>{{ $record->description }}</p>

@@ -2,7 +2,7 @@
     <td><select name="lines[{{ $index }}][account]" aria-label="Ledger account" required>
         <option value="">Select account</option>
         @foreach ($accounts as $account)
-            <option value="{{ $account->id }}" @selected((string) $account->id === (string) ($input['account'] ?? ''))>{{ $account->code }} · {{ $account->name }} (ID {{ $account->id }})</option>
+            <option value="{{ $account->id }}" @selected((string) $account->id === (string) ($input['account'] ?? ''))>{{ $account->code }} · {{ $account->name }} (ID {{ $account->id }}){{ $cashAccountIds->has($account->id) ? ' · Cash book' : '' }}</option>
         @endforeach
     </select></td>
     <td><select name="lines[{{ $index }}][side]" aria-label="Debit or credit" required>

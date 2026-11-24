@@ -22,6 +22,17 @@
                 <li>{{ number_format($unposted['member_funds']) }} savings and share transactions awaiting a journal</li>
             </ul>
             <p><a href="{{ route('staff.loan-transactions', ['from' => $from, 'to' => $reportTo]) }}">Review confirmed loan transactions</a></p>
+            @if ($ended)
+                <p><a href="{{ route('staff.bank-reconciliation.index', compact('month')) }}">Review bank reconciliation status</a></p>
+                @if ($bankStatuses->isNotEmpty())
+                    <p>{{ $bankStatuses->get('Reconciled', 0) }} of {{ $bankStatuses->sum() }} bank accounts reconciled.
+                        @foreach (['Awaiting review', 'Difference to resolve', 'Ledger changed'] as $status)
+                            @if ($bankStatuses->has($status)) · {{ $bankStatuses[$status] }} {{ strtolower($status) }} @endif
+                        @endforeach
+                    </p>
+                @endif
+            @endif
+            <p><a href="{{ route('staff.cash-book.index', ['from' => $from, 'to' => $reportTo]) }}">Review cash book for this period</a></p>
             <p><a href="{{ route('staff.loan-ledger.index', ['from' => $from, 'to' => $reportTo]) }}">Review trial balance for this period</a></p>
         </section>
         <section class="panel">
@@ -36,8 +47,15 @@
                     <textarea id="reason" name="reason" maxlength="500" rows="4" required>{{ is_string(old('reason')) ? old('reason') : '' }}</textarea>
                     <button class="primary">{{ $closed ? 'Reopen month' : 'Close month' }}</button>
                 </form>
+            @elseif (! $ended)
+                <p>This month can be closed after it ends.</p>
             @else
-                <p>{{ array_sum($unposted) ? 'Post the confirmed transactions before closing.' : 'This month can be closed after it ends.' }}</p>
+                @if (array_sum($unposted))
+                    <p>Post the confirmed transactions before closing.</p>
+                @endif
+                @if ($requiresReconciliation && $banksPending)
+                    <p>Complete current bank reconciliations with zero unexplained differences before closing this month.</p>
+                @endif
             @endif
             <p class="note">This checklist covers the operational loan and member fund ledger. Use the opening journal for verified cutover balances.</p>
         </section>

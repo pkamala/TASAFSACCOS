@@ -57,11 +57,11 @@
                             <td class="register-name">{{ $loan->registration_no }} · {{ $loan->first_name }} {{ $loan->last_name }}</td>
                             <td>{{ ucfirst($loan->status ?: 'Unknown') }}</td>
                             <td class="money">{{ is_numeric($loan->principal) ? number_format((float) $loan->principal, 2) : '—' }}</td>
-                            <td>{{ $loan->term_months ?? '—' }}</td>
+                            <td>{{ $loan->term_months ?? '—' }} @if ($source === 'applications' && $loan->interest_method === 'scheduled') installments @endif</td>
                             @if ($source === 'applications')
                                 <td>{{ $loan->category_name ?? 'Uncategorized' }}</td>
-                                <td>{{ number_format((float) $loan->rate, 2) }}%</td>
-                                <td>{{ $loan->interest_method === 'flat' ? 'Flat rate' : 'Reducing balance' }}</td>
+                                <td>{{ $loan->interest_method === 'scheduled' ? '—' : number_format((float) $loan->rate, 2).'%' }}</td>
+                                <td>{{ match ($loan->interest_method) { 'scheduled' => 'Migrated schedule', 'flat' => 'Flat rate', default => 'Reducing balance' } }}</td>
                                 <td class="money">{{ number_format((float) $loan->charges, 2) }}</td>
                                 <td>{{ $loan->first_due_date }}</td>
                             @endif

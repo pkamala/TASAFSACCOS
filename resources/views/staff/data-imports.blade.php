@@ -2,6 +2,7 @@
 @section('title', 'Data imports')
 @section('content')
     <div class="page-intro">
+        <a href="{{ route('staff.cutover-checklist') }}">Cutover checklist</a>
         <h1>Data imports</h1>
         <p>Use approved exports for one agreed closing date. Preview each upload and compare the totals with finance’s signed reports before applying it.</p>
     </div>
@@ -50,6 +51,7 @@
         <ol class="review-steps">
             <li><a href="{{ route('staff.verified-balance-import.index') }}">Import member savings and share balances</a> after the member register is loaded.</li>
             <li><a href="{{ route('staff.ledger-opening.index') }}">Import and post the opening trial balance</a> after the chart of accounts is loaded.</li>
+            <li><a href="{{ route('staff.active-loans.index') }}">Migrate active loans</a> after verifying outstanding legacy principal.</li>
             <li><a href="{{ route('staff.ledger-financial-reports') }}">Review financial reports</a> against the approved opening totals.</li>
         </ol>
     </section>

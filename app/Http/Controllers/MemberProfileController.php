@@ -16,10 +16,13 @@ class MemberProfileController extends Controller
 {
     public function index(Request $request): View|string
     {
-        $input = $request->validate(['q' => ['nullable', 'string', 'max:100']]);
+        $input = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'status' => ['nullable', 'in:active,inactive,exited']]);
         $search = $input['q'] ?? '';
+        $intake = $request->routeIs('staff.loan-intake');
+        $status = $intake ? 'active' : ($input['status'] ?? '');
         $members = DB::table('members')
             ->select(['id', 'registration_no', 'first_name', 'last_name', 'status'])
+            ->when($status !== '', fn ($query) => $query->where('status', $status))
             ->when($search !== '', function ($query) use ($search): void {
                 $term = '%'.addcslashes($search, '%_\\').'%';
                 $query->where(function ($query) use ($term): void {
@@ -29,9 +32,9 @@ class MemberProfileController extends Controller
                 });
             })
             ->orderByRaw('lower(first_name), lower(last_name)')->orderBy('id')
-            ->simplePaginate(TablePage::size())->appends(['q' => $search]);
+            ->simplePaginate(TablePage::size())->appends(['q' => $search, 'status' => $status]);
 
-        $view = view('staff.members', compact('members', 'search'));
+        $view = view('staff.members', compact('members', 'search', 'status', 'intake'));
 
         return $request->ajax() ? $view->fragment('table-results') : $view;
     }
@@ -86,9 +89,11 @@ class MemberProfileController extends Controller
             ->select('member_audits.*', 'users.name as actor')
             ->simplePaginate(TablePage::size());
 
-        $login = DB::table('users')->where('member_id', $member)->first(['email', 'is_staff_admin', 'local_setup_pending']);
+        $login = DB::table('users')->where('member_id', $member)->first(['email', 'is_staff_admin', 'local_setup_pending', 'loan_workflow_role']);
 
-        return response()->view('staff.member', compact('profile', 'history', 'login'), headers: [
+        $exitedOn = DB::table('member_exits')->where('member_id', $member)->where('status', 'finalized')->value('effective_on');
+
+        return response()->view('staff.member', compact('profile', 'history', 'login', 'exitedOn'), headers: [
             'Cache-Control' => 'private, no-store',
             'Referrer-Policy' => 'no-referrer',
         ]);
@@ -107,6 +112,52 @@ class MemberProfileController extends Controller
         $this->saveChanges($member, $request->user()->id, $input);
 
         return redirect()->route('staff.members.show', $member)->with('status', 'Member profile saved.');
+    }
+
+    public function updateStatus(Request $request, int $member): RedirectResponse
+    {
+        $data = $request->validate(['membership_status' => ['required', 'in:active,inactive'], 'status_reason' => ['required', 'string', 'max:500']]);
+        DB::transaction(function () use ($request, $member, $data): void {
+            $profile = DB::table('members')->lockForUpdate()->find($member);
+            abort_if($profile === null, 404);
+            if ($profile->status === 'exited' || DB::table('member_exits')->where('member_id', $member)
+                ->whereIn('status', ['requested', 'approved'])->exists()) {
+                throw ValidationException::withMessages(['membership_status' => 'Use the membership exit workflow for a member with an exit request or completed exit.']);
+            }
+            $this->saveChanges($member, $request->user()->id, ['status' => $data['membership_status']], $data['status_reason'], 'status_reason');
+        }, 3);
+
+        return redirect()->route('staff.members.show', $member)->with('status', 'Membership status saved.');
+    }
+
+    public function updateLoanRole(Request $request, int $member): RedirectResponse
+    {
+        $data = $request->validate([
+            'loan_workflow_role' => ['present', 'nullable', 'in:staff,committee,board'],
+            'role_reason' => ['required', 'string', 'max:500'],
+        ]);
+        DB::transaction(function () use ($request, $member, $data): void {
+            DB::selectOne('SELECT pg_advisory_xact_lock(hashtext(?))', ['board-roles']);
+            $profile = DB::table('members')->lockForUpdate()->find($member);
+            abort_if($profile === null, 404);
+            $login = DB::table('users')->where('member_id', $member)->where('is_staff_admin', false)->lockForUpdate()->first();
+            if ($login === null || ($profile->status !== 'active' && $data['loan_workflow_role'] !== null)) {
+                throw ValidationException::withMessages(['loan_workflow_role' => 'Assign loan roles to active members with a regular member login.']);
+            }
+            if ($login->loan_workflow_role === $data['loan_workflow_role']) {
+                return;
+            }
+            DB::table('users')->where('id', $login->id)->update(['loan_workflow_role' => $data['loan_workflow_role'], 'updated_at' => now()]);
+            DB::table('member_audits')->insert([
+                'member_id' => $member, 'actor_id' => $request->user()->id, 'recorded_at' => now(),
+                'changes' => json_encode([
+                    'loan_workflow_role' => ['before' => $login->loan_workflow_role, 'after' => $data['loan_workflow_role']],
+                    'role_reason' => ['before' => null, 'after' => $data['role_reason']],
+                ], JSON_THROW_ON_ERROR),
+            ]);
+        }, 3);
+
+        return redirect()->route('staff.members.show', $member)->with('status', 'Loan workflow role saved.');
     }
 
     public function updatePayroll(Request $request, int $member): RedirectResponse
@@ -129,9 +180,9 @@ class MemberProfileController extends Controller
         return redirect()->route('staff.members.show', $member)->with('status', 'Payroll contributions saved.');
     }
 
-    private function saveChanges(int $member, int $actor, array $input, ?string $reference = null): void
+    private function saveChanges(int $member, int $actor, array $input, ?string $reference = null, string $referenceField = 'payroll_reference'): void
     {
-        DB::transaction(function () use ($member, $actor, $input, $reference): void {
+        DB::transaction(function () use ($member, $actor, $input, $reference, $referenceField): void {
             $profile = DB::table('members')->lockForUpdate()->find($member);
             abort_if(! $profile, 404);
 
@@ -140,7 +191,7 @@ class MemberProfileController extends Controller
                 if ($value === $profile->$field) {
                     continue;
                 }
-                if ($reference !== null) {
+                if ($referenceField === 'payroll_reference' && $reference !== null) {
                     $label = str_replace('_minor', '_TZS', $field);
                     $changes[$label] = [
                         'before' => number_format($profile->$field / 100, 2, '.', ''),
@@ -155,7 +206,7 @@ class MemberProfileController extends Controller
                 return;
             }
             if ($reference !== null) {
-                $changes['payroll_reference'] = ['before' => null, 'after' => $reference];
+                $changes[$referenceField] = ['before' => null, 'after' => $reference];
             }
 
             $now = now();

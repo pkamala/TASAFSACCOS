@@ -61,9 +61,10 @@ class RecordLoanRepayment
                 $this->invalid('This receipt reference already exists for the loan with different details.');
             }
 
-            $disbursedOn = DB::table('loan_disbursements')->where('loan_application_id', $application)->value('transferred_on');
-            if ($record->status !== 'disbursed' || $disbursedOn === null || $data['received_on'] < $disbursedOn) {
-                $this->invalid('Record repayments on or after the transfer date for a disbursed loan.');
+            $repaymentStart = DB::table('loan_disbursements')->where('loan_application_id', $application)->value('transferred_on')
+                ?? DB::table('active_loan_migrations')->where('loan_application_id', $application)->value('effective_on');
+            if ($record->status !== 'disbursed' || $repaymentStart === null || $data['received_on'] < $repaymentStart) {
+                $this->invalid('Record repayments on or after the transfer or migration date for an active loan.');
             }
 
             $installments = DB::table('loan_application_installments')->where('loan_application_id', $application)->get()->keyBy('number');

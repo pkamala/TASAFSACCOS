@@ -20,12 +20,13 @@
         <section class="panel">
             <h2>Monthly TASAF payroll list</h2>
             <p>Generate deductions from outstanding installments due in this month and recurring savings and shares configured on member profiles.</p>
-            <p>Review the generated list before it is sent to TASAF Accounts. Installments from other months stay outside this list.</p>
+            <p>Review the generated list before it is sent to TASAF Accounts. Include overdue installments only when their collection has been agreed.</p>
             <form method="POST" action="{{ route('staff.loan-batches.store') }}" class="fields">
                 @csrf
                 <input type="hidden" name="kind" value="repayment">
                 <label for="period">Payroll month</label>
                 <input id="period" name="period" type="month" value="{{ is_string(old('period')) ? old('period') : now('Africa/Dar_es_Salaam')->format('Y-m') }}" required>
+                <label><input type="checkbox" name="include_overdue" value="1" @checked(old('include_overdue'))> Include unpaid installments from earlier months</label>
                 <button class="primary">Generate payroll list</button>
             </form>
         </section>

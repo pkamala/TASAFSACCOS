@@ -17,6 +17,13 @@ class MembershipControlsTest extends TestCase
         $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 11, 22));
         $member = $this->member();
         $admin = User::factory()->create(['is_staff_admin' => true]);
+        foreach (['SPONSOR-1', 'SPONSOR-2'] as $number) {
+            $id = DB::table('members')->insertGetId([
+                'first_name' => 'Sponsor', 'last_name' => 'Member', 'registration_no' => $number,
+                'email' => "$number@example.com", 'status' => 'active',
+            ]);
+            User::factory()->create(['member_id' => $id]);
+        }
         $minimums = '/staff/membership-minimums';
         $thresholds = ['savings' => '100000', 'shares' => '50000', 'current_revision' => 0, 'reason' => 'Board policy'];
 
@@ -31,19 +38,25 @@ class MembershipControlsTest extends TestCase
         $path = "/staff/members/$member/loan-applications";
         $upload = "/staff/members/$member/verified-balances";
         $payload = [
-            'submission_id' => (string) Str::uuid(), 'principal' => '500000', 'pricing_revision_id' => $revision, 'loan_category_id' => DB::table('loan_categories')->where('name', 'Staff loan')->value('id'),
+            'sponsors' => ['SPONSOR-1', 'SPONSOR-2'],
+            'submission_id' => (string) Str::uuid(), 'principal' => '300000', 'pricing_revision_id' => $revision, 'loan_category_id' => DB::table('loan_categories')->where('name', 'Staff loan')->value('id'),
             'term_months' => 6, 'first_due_date' => '2026-12-31',
         ];
 
         $this->from("$path/new")->post($path, $payload)->assertSessionHasErrors('eligibility');
-        $balance = ['as_of' => '2026-11-22', 'savings' => '100000', 'shares' => '49999.99', 'evidence_reference' => 'Statement 01'];
+        $balance = ['as_of' => '2026-11-22', 'savings' => '100000', 'shares' => '499999.99', 'evidence_reference' => 'Statement 01'];
         $this->from($upload)->post($upload, $balance)->assertRedirect($upload);
         $this->get("$path/new")->assertOk()->assertSee('Verified shares are below the required minimum.');
         $this->from("$path/new")->post($path, $payload)->assertSessionHasErrors('eligibility');
         $this->assertDatabaseEmpty('loan_applications');
 
-        $this->from($upload)->post($upload, [...$balance, 'shares' => '50000', 'evidence_reference' => 'Statement 02'])->assertRedirect($upload);
+        $this->from($upload)->post($upload, [...$balance, 'shares' => '500000', 'evidence_reference' => 'Statement 02'])->assertRedirect($upload);
         $this->get($upload)->assertOk()->assertSee('Statement 02')->assertSee('Statement 01');
+        $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 11, 21));
+        $this->get("$path/new")->assertOk()->assertSee('completes three months of membership on 2026-11-22');
+        $this->post($path, $payload)->assertSessionHasErrors('eligibility');
+
+        $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 11, 22));
         $this->post($path, $payload)->assertRedirect();
         $this->assertDatabaseHas('loan_applications', [
             'member_id' => $member,
@@ -89,17 +102,47 @@ class MembershipControlsTest extends TestCase
         $this->assertDatabaseHas('member_exits', [
             'id' => $exit, 'status' => 'finalized', 'reviewed_by' => $reviewer->id, 'finalized_by' => $admin->id,
         ]);
-        $this->assertDatabaseHas('members', ['id' => $member, 'status' => 'inactive']);
+        $this->assertDatabaseHas('members', ['id' => $member, 'status' => 'exited']);
         $this->assertNull($officer->fresh()->board_role);
         $this->assertDatabaseHas('board_role_changes', ['role' => 'chairperson', 'previous_user_id' => $officer->id, 'next_user_id' => null]);
         $this->actingAs($officer->fresh())->get('/member/account')->assertOk()->assertSee('Finalized')->assertDontSee('Request membership exit');
+    }
+
+    public function test_only_admins_can_inactivate_and_reactivate_members(): void
+    {
+        $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 11, 22));
+        $member = $this->member();
+        $admin = User::factory()->create(['is_staff_admin' => true]);
+        $login = User::factory()->create(['member_id' => $member]);
+        $profile = "/staff/members/$member";
+        $change = ['membership_status' => 'inactive', 'status_reason' => 'Administrative suspension'];
+
+        $this->actingAs($login)->patch("$profile/status", $change)->assertForbidden();
+        $this->get('/member/account')->assertOk()->assertSee('Joined 22 Aug 2026')->assertSee('3 months');
+        $role = ['loan_workflow_role' => 'staff', 'role_reason' => 'Assign loan intake'];
+        $this->patch("$profile/loan-role", $role)->assertForbidden();
+        $this->actingAs($admin)->patch("$profile/loan-role", $role)->assertRedirect($profile);
+        $this->actingAs($login->fresh())->get('/staff/loan-intake')->assertOk();
+
+        $this->actingAs($admin)->patch("$profile/status", $change)->assertRedirect($profile);
+        $this->actingAs($login)->get('/staff/loan-intake')->assertForbidden();
+        $this->actingAs($admin);
+
+        $this->assertDatabaseHas('members', ['id' => $member, 'status' => 'inactive']);
+        $this->get('/staff/members?status=inactive')->assertOk()->assertSee('10415');
+        $this->get('/staff/members?status=active')->assertOk()->assertDontSee('10415');
+        $this->get("$profile/loan-applications/new")->assertForbidden();
+
+        $this->patch("$profile/status", [...$change, 'membership_status' => 'exited'])->assertSessionHasErrors('membership_status');
+        $this->patch("$profile/status", [...$change, 'membership_status' => 'active'])->assertRedirect($profile);
+        $this->assertDatabaseHas('members', ['id' => $member, 'status' => 'active']);
     }
 
     private function member(?int $legacyId = null): int
     {
         return DB::table('members')->insertGetId([
             'first_name' => 'Asha', 'last_name' => 'Mushi', 'registration_no' => '10415',
-            'email' => 'asha@example.com', 'status' => 'active', 'legacy_member_id' => $legacyId,
+            'email' => 'asha@example.com', 'status' => 'active', 'legacy_member_id' => $legacyId, 'joining_date' => '2026-08-22',
         ]);
     }
 }

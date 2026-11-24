@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\JournalPosting;
 use App\LedgerPeriods;
+use App\PayrollDeductions;
 use App\PayrollPostingAccounts;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -101,7 +102,7 @@ class PayrollJournalController extends Controller
 
     private function sources(stdClass $record, bool $lock = false): array
     {
-        $items = json_decode($record->items, true, flags: JSON_THROW_ON_ERROR);
+        $items = PayrollDeductions::confirmedItems($record);
         $hasLoans = array_column($items, 'loan_id') !== [];
         $loanPosted = $hasLoans && DB::table('loan_journal_postings')->where('loan_batch_id', $record->id)->exists();
         $query = DB::table('member_fund_transactions')->where('loan_batch_id', $record->id)->orderBy('id');

@@ -5,6 +5,7 @@
         <a href="{{ route('staff.members.index') }}">All members</a>
         <h1>{{ $profile->first_name }} {{ $profile->last_name }}</h1>
         <p>{{ $profile->registration_no }} · {{ ucfirst($profile->status) }}</p>
+        @include('member.tenure', ['joiningDate' => $profile->joining_date, 'exitedOn' => $exitedOn])
         <a href="{{ route('staff.members.next-of-kin.index', $profile->id) }}">Next of kin</a>
         <a href="{{ route('staff.loan-applications.index', $profile->id) }}">Loan applications</a>
         <a href="{{ route('staff.member-funds.index', $profile->id) }}">Savings and shares</a>
@@ -17,6 +18,44 @@
     </div>
     @if (session('status')) <p role="status">{{ session('status') }}</p> @endif
     <div class="profile-grid">
+        @if ($profile->status !== 'exited')
+            <section class="panel">
+                <h2>Membership status</h2>
+                <form method="POST" action="{{ route('staff.members.status.update', $profile->id) }}" class="fields">
+                    @csrf
+                    @method('PATCH')
+                    <label for="membership_status">Status</label>
+                    <select id="membership_status" name="membership_status" required>
+                        <option value="active" @selected(old('membership_status', $profile->status) === 'active')>Active</option>
+                        <option value="inactive" @selected(old('membership_status', $profile->status) === 'inactive')>Inactive</option>
+                    </select>
+                    <label for="status_reason">Reason for status change</label>
+                    <input id="status_reason" name="status_reason" maxlength="500" required>
+                    <button class="primary">Save membership status</button>
+                </form>
+            </section>
+        @endif
+        @if ($login && ! $login->is_staff_admin && ($profile->status === 'active' || $login->loan_workflow_role))
+            <section class="panel">
+                <h2>Loan workflow role</h2>
+                <form method="POST" action="{{ route('staff.members.loan-role.update', $profile->id) }}" class="fields">
+                    @csrf
+                    @method('PATCH')
+                    <label for="loan_workflow_role">Assigned role</label>
+                    <select id="loan_workflow_role" name="loan_workflow_role">
+                        <option value="">No assigned role</option>
+                        @if ($profile->status === 'active')
+                            @foreach (\App\LoanApproval::Roles as $role => $label)
+                                <option value="{{ $role }}" @selected(old('loan_workflow_role', $login->loan_workflow_role) === $role)>{{ $label }}</option>
+                            @endforeach
+                        @endif
+                    </select>
+                    <label for="role_reason">Reason for role change</label>
+                    <input id="role_reason" name="role_reason" maxlength="500" required>
+                    <button class="primary">Save loan role</button>
+                </form>
+            </section>
+        @endif
         <section class="panel">
             <h2>Profile details</h2>
             <p>{{ $profile->email }}</p>

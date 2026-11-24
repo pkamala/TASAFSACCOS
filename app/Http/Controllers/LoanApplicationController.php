@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\LoanApproval;
 use App\LoanEligibility;
 use App\LoanEvidence;
 use App\LoanPricing;
 use App\LoanSchedule;
+use App\LoanSponsorship;
 use App\Models\User;
 use App\TablePage;
 use Illuminate\Http\RedirectResponse;
@@ -19,18 +21,30 @@ use Symfony\Component\HttpFoundation\Response;
 
 class LoanApplicationController extends Controller
 {
-    public function queue(): View
+    public function queue(Request $request, LoanApproval $approval, LoanSponsorship $sponsorship): View
     {
-        $applications = DB::table('loan_applications as application')
+        $actor = $request->user();
+        $query = DB::table('loan_applications as application')
             ->where('application.status', 'submitted')
             ->join('members as member', 'member.id', '=', 'application.member_id')
             ->join('users as creator', 'creator.id', '=', 'application.created_by')
             ->leftJoin('loan_categories as category', 'category.id', '=', 'application.loan_category_id')
             ->select([
-                'application.id', 'application.member_id', 'application.principal_minor',
+                'application.id', 'application.member_id', 'application.principal_minor', 'application.approval_lane',
                 'category.name as category_name', 'member.registration_no', 'member.first_name', 'member.last_name', 'creator.name as creator',
-            ])
-            ->orderByRaw('lower(member.first_name), lower(member.last_name)')->orderBy('application.id')->simplePaginate(TablePage::size());
+            ])->addSelect([
+                'confirmed_sponsors' => $sponsorship->confirmedActiveCount('application'),
+                'board_borrower' => $approval->boardBorrower(DB::table('users'))
+                    ->whereColumn('users.member_id', 'application.member_id')->selectRaw('true')->limit(1),
+            ]);
+        if (! $actor->is_staff_admin) {
+            if ($actor->can('review-loan-applications')) {
+                $approval->forReviewer($query, $actor, 'application');
+            } else {
+                $query->where('application.created_by', $actor->id);
+            }
+        }
+        $applications = $query->orderByRaw('lower(member.first_name), lower(member.last_name)')->orderBy('application.id')->simplePaginate(TablePage::size());
 
         return view('staff.loan-applications.queue', compact('applications'));
     }
@@ -62,9 +76,10 @@ class LoanApplicationController extends Controller
         ]);
     }
 
-    public function store(Request $request, int $member, LoanSchedule $calculator, LoanEligibility $eligibility, LoanPricing $prices): RedirectResponse
+    public function store(Request $request, int $member, LoanSchedule $calculator, LoanEligibility $eligibility, LoanPricing $prices, LoanApproval $approval, LoanSponsorship $sponsorship): RedirectResponse
     {
         $data = $request->validate([
+            ...$sponsorship->rules(),
             'submission_id' => ['required', 'uuid'],
             'principal' => ['required', 'numeric', 'decimal:0,2', 'between:100,100000000000'],
             'pricing_revision_id' => ['required', 'integer', 'min:1'],
@@ -79,8 +94,9 @@ class LoanApplicationController extends Controller
         ]);
         $actor = $request->user()->id;
 
-        $id = DB::transaction(function () use ($data, $member, $actor, $calculator, $eligibility, $prices): int {
+        $id = DB::transaction(function () use ($data, $member, $actor, $calculator, $eligibility, $prices, $approval, $sponsorship): int {
             DB::selectOne('SELECT pg_advisory_xact_lock(hashtext(?))', ['loan-application:'.Str::lower($data['submission_id'])]);
+            DB::selectOne('SELECT pg_advisory_xact_lock_shared(hashtext(?))', ['board-roles']);
             $profile = DB::table('members')->lockForUpdate()->find($member);
             abort_if($profile === null, 404);
             $existing = DB::table('loan_applications')->where('submission_id', $data['submission_id'])->first();
@@ -93,8 +109,6 @@ class LoanApplicationController extends Controller
             if ($profile->status !== 'active') {
                 throw ValidationException::withMessages(['member' => 'A new application requires an active member.']);
             }
-
-            $qualification = $eligibility->requireEligible($member);
 
             $category = (int) $data['loan_category_id'];
             $prices->lock($category);
@@ -110,6 +124,7 @@ class LoanApplicationController extends Controller
                 'processing_fee_minor' => $pricing->processing_fee_minor,
                 'other_charges_minor' => $pricing->other_charges_minor,
             ];
+            $qualification = $eligibility->requireEligible($member, array_sum($amounts));
             $schedule = $calculator->calculate(
                 array_sum($amounts), $pricing->annual_basis_points, (int) $data['term_months'], $pricing->interest_method, $data['first_due_date'],
             );
@@ -130,8 +145,11 @@ class LoanApplicationController extends Controller
                 'interest_method' => $pricing->interest_method,
                 'first_due_date' => $data['first_due_date'],
                 'status' => 'submitted',
+                'approval_lane' => $approval->borrowerLane($member) === 'board' ? 'pending_board' : 'pending',
                 'created_at' => now(),
             ]);
+
+            $sponsorship->nominate($application, $member, $data['sponsors']);
 
             DB::table('loan_application_installments')->insert(array_map(static fn (array $row): array => [
                 'loan_application_id' => $application,
@@ -150,15 +168,16 @@ class LoanApplicationController extends Controller
         return redirect()->route('staff.loan-applications.show', [$member, $id]);
     }
 
-    public function show(Request $request, int $member, int $application): View
+    public function show(Request $request, int $member, int $application, LoanApproval $approval, LoanSponsorship $sponsorship): View
     {
         $profile = $this->member($member);
         $record = DB::table('loan_applications as application')->where('application.member_id', $member)
             ->join('users as creator', 'creator.id', '=', 'application.created_by')
             ->leftJoin('loan_categories as category', 'category.id', '=', 'application.loan_category_id')
+            ->leftJoin('users as officer', 'officer.id', '=', 'application.recommended_by')
             ->where('application.id', $application)
-            ->first(['application.*', 'creator.name as creator', 'category.name as category_name']);
-        abort_if($record === null, 404);
+            ->first(['application.*', 'creator.name as creator', 'category.name as category_name', 'officer.name as loan_officer']);
+        abort_if($record === null || ! $approval->mayView($request->user(), $record), 404);
 
         $installments = DB::table('loan_application_installments')->where('loan_application_id', $application)->orderBy('number')->get();
         $decision = DB::table('loan_application_decisions as decision')
@@ -167,6 +186,7 @@ class LoanApplicationController extends Controller
         $disbursement = DB::table('loan_disbursements as transfer')
             ->join('users as recorder', 'recorder.id', '=', 'transfer.recorded_by')
             ->where('loan_application_id', $application)->first(['transfer.*', 'recorder.name as recorder']);
+        $migration = DB::table('active_loan_migrations')->where('loan_application_id', $application)->first();
         $paid = DB::table('loan_repayment_allocations')->where('loan_application_id', $application)
             ->selectRaw('installment_number, sum(principal_minor) AS principal_minor, sum(interest_minor) AS interest_minor')
             ->groupBy('installment_number')->get()->keyBy('installment_number');
@@ -185,42 +205,86 @@ class LoanApplicationController extends Controller
         $mayCancelForExit = $record->status === 'approved' && $disbursement === null
             && $this->reviewerMayDecide($request->user(), $member)
             && DB::table('member_exits')->where('member_id', $member)->where('status', 'approved')->exists();
-        $mayReview = $record->status === 'submitted' && $this->reviewerMayDecide($request->user(), $member) && $request->user()->id !== $record->created_by;
+        $mayReview = $record->status === 'submitted' && $approval->mayReview($request->user(), $record);
+
+        $sponsors = $sponsorship->forApplication($application);
+        $mayEditSponsors = $request->user()->is_staff_admin && $sponsorship->mayChange($record);
+        $sponsorsConfirmed = $sponsorship->ready($sponsors);
+        $mayRecommend = $mayEditSponsors && $sponsorsConfirmed;
+        $requiresMinutes = $record->approval_lane !== 'committee' || $approval->borrowerLane($member) === 'board';
 
         $otherActiveLoans = DB::table('loan_applications')->where('member_id', $member)->where('status', 'disbursed')
             ->where('id', '<>', $application)->count();
 
-        return view('staff.loan-applications.show', compact('otherActiveLoans', 'profile', 'record', 'installments', 'decision', 'disbursement', 'mayReview', 'paid', 'receipts', 'receiptAllocations', 'cancellation', 'mayCancelForExit'));
+        return view('staff.loan-applications.show', compact('otherActiveLoans', 'profile', 'record', 'installments', 'decision', 'disbursement', 'migration', 'mayReview', 'paid', 'receipts', 'receiptAllocations', 'cancellation', 'mayCancelForExit', 'mayRecommend', 'mayEditSponsors', 'sponsors', 'sponsorsConfirmed', 'requiresMinutes'));
     }
 
-    public function review(Request $request, int $member, int $application, LoanEvidence $evidence, LoanEligibility $eligibility): RedirectResponse
+    public function recommend(Request $request, int $member, int $application, LoanApproval $approval, LoanSponsorship $sponsorship): RedirectResponse
     {
-        $reviewer = $request->user();
-        abort_unless($this->reviewerMayDecide($reviewer, $member), 403);
-
         $data = $request->validate([
-            'decision' => ['required', 'in:approved,declined'],
-            'reason' => ['required', 'string', 'max:500'],
-            'minutes' => ['required', 'file', 'mimes:pdf', 'max:8192'],
+            'recommendation' => ['required', 'in:approve,decline'],
+            'recommendation_note' => ['required', 'string', 'max:1000'],
         ]);
+
+        DB::transaction(function () use ($request, $member, $application, $approval, $data, $sponsorship): void {
+            DB::selectOne('SELECT pg_advisory_xact_lock_shared(hashtext(?))', ['board-roles']);
+            $profile = DB::table('members')->lockForUpdate()->find($member);
+            abort_if($profile === null, 404);
+            $record = DB::table('loan_applications')->where('member_id', $member)->lockForUpdate()->find($application);
+            abort_if($record === null, 404);
+            if (! $sponsorship->mayChange($record)) {
+                throw ValidationException::withMessages(['recommendation' => 'This application has already been forwarded or decided.']);
+            }
+
+            if (! $sponsorship->ready($sponsorship->forApplication($application, lock: true))) {
+                throw ValidationException::withMessages(['sponsors' => 'Both active sponsors must confirm before the application can be forwarded.']);
+            }
+
+            DB::table('loan_applications')->where('id', $application)->update([
+                ...$data,
+                'approval_lane' => $record->approval_lane === 'pending_board' ? 'board' : $approval->borrowerLane($member),
+                'recommended_by' => $request->user()->id,
+                'recommended_at' => now(),
+            ]);
+        }, 3);
+
+        return redirect()->route('staff.loan-applications.show', [$member, $application])->with('status', 'Recommendation saved and application forwarded.');
+    }
+
+    public function review(Request $request, int $member, int $application, LoanEvidence $evidence, LoanEligibility $eligibility, LoanApproval $approval): RedirectResponse
+    {
         $actor = $request->user()->id;
 
-        DB::transaction(function () use ($data, $member, $application, $actor, $evidence, $eligibility): void {
+        DB::transaction(function () use ($request, $member, $application, $actor, $evidence, $eligibility, $approval): void {
             DB::selectOne('SELECT pg_advisory_xact_lock_shared(hashtext(?))', ['board-roles']);
             $reviewer = User::query()->findOrFail($actor);
             $profile = DB::table('members')->lockForUpdate()->find($member);
             abort_if($profile === null, 404);
             $record = DB::table('loan_applications')->where('member_id', $member)->lockForUpdate()->find($application);
             abort_if($record === null, 404);
-            abort_if($actor === $record->created_by || ! $this->reviewerMayDecide($reviewer, $member), 403);
+            abort_unless($approval->mayReview($reviewer, $record), 403);
+
+            $data = $request->validate([
+                'decision' => ['required', 'in:approved,declined'],
+                'reason' => ['required', 'string', 'max:500'],
+                'minutes' => ['nullable', 'file', 'mimes:pdf', 'max:8192'],
+            ]);
 
             if ($record->status !== 'submitted' || ($data['decision'] === 'approved' && $profile->status !== 'active')) {
                 throw ValidationException::withMessages(['decision' => 'This application is no longer eligible for that decision.']);
             }
 
+            if (($record->approval_lane !== 'committee' || $approval->borrowerLane($member) === 'board') && empty($data['minutes'])) {
+                throw ValidationException::withMessages(['minutes' => 'Upload the board meeting minutes for this decision.']);
+            }
+
             if ($data['decision'] === 'approved') {
                 if ($record->loan_eligibility_revision_id !== null) {
-                    $eligibility->requireEligible($member);
+                    $eligibility->requireEligible(
+                        $member,
+                        $record->principal_minor + $record->insurance_minor + $record->processing_fee_minor + $record->other_charges_minor,
+                        $application,
+                    );
                 } elseif (DB::table('member_exits')->where('member_id', $member)->whereIn('status', ['requested', 'approved'])->exists()) {
                     throw ValidationException::withMessages(['eligibility' => 'The member has an open exit request.']);
                 }
@@ -232,7 +296,7 @@ class LoanApplicationController extends Controller
                 'decision' => $data['decision'],
                 'reason' => $data['reason'],
                 'reviewed_at' => now(),
-                'minutes_id' => $evidence->record($data['minutes']),
+                'minutes_id' => isset($data['minutes']) ? $evidence->record($data['minutes']) : null,
             ]);
             DB::table('loan_applications')->where('id', $application)->update(['status' => $data['decision']]);
         }, 3);
@@ -266,14 +330,16 @@ class LoanApplicationController extends Controller
         return redirect()->route('staff.loan-applications.show', [$member, $application])->with('status', 'Undisbursed loan cancelled for the member exit.');
     }
 
-    public function minutes(int $member, int $application, LoanEvidence $evidence): Response
+    public function minutes(Request $request, int $member, int $application, LoanEvidence $evidence, LoanApproval $approval): Response
     {
+        $record = DB::table('loan_applications')->where('member_id', $member)->find($application);
+        abort_if($record === null || ! $approval->mayView($request->user(), $record), 404);
         $id = DB::table('loan_application_decisions as decision')
             ->join('loan_applications as application', 'application.id', '=', 'decision.loan_application_id')
             ->where('application.id', $application)->where('application.member_id', $member)->value('minutes_id');
         abort_if($id === null, 404);
 
-        return $evidence->download($id, "board-minutes-$application.pdf");
+        return $evidence->download($id, "review-minutes-$application.pdf");
     }
 
     private function reviewerMayDecide(User $reviewer, int $member): bool

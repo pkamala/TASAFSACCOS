@@ -8,6 +8,7 @@
     </div>
     @if (session('status'))<p role="status">{{ session('status') }}</p>@endif
     @include('form-errors')
+    <p>Loan applicants need at least three completed months of membership and TZS 500,000 in shares. The share minimum can be set higher. Total financed loan commitments are capped at three times available savings.</p>
     <section class="panel admin-profile">
         <form method="POST" action="{{ route('staff.membership-minimums.update') }}" class="fields">
             @csrf

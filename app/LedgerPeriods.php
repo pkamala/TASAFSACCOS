@@ -25,6 +25,13 @@ class LedgerPeriods
         }
     }
 
+    public function requiresBankReconciliation(string $end): bool
+    {
+        $cutover = DB::table('ledger_opening_journals')->value('effective_on');
+
+        return $cutover !== null && $cutover <= $end;
+    }
+
     public function closed(string $period): bool
     {
         return DB::table('ledger_period_events')->where('period', $period)->orderByDesc('id')->value('action') === 'closed';

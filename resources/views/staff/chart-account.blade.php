@@ -28,6 +28,27 @@
             <p><a href="{{ route('staff.chart-accounts.transfer', $record->id) }}">Balance transfers</a></p>
         @endif
     </section>
+    @if ($record->is_ledger_account)
+        <section class="panel stacked-panel">
+            <h2>Cash book classification</h2>
+            <form method="POST" action="{{ route('staff.chart-accounts.cash-book', $record->id) }}" class="fields">
+                @csrf
+                @method('PATCH')
+                <label for="cash-book-account">Include this cash or bank account in the report</label>
+                <select id="cash-book-account" name="is_cash_book_account">
+                    <option value="0" @selected(! $record->cash_book_account_id)>No</option>
+                    <option value="1" @selected($record->cash_book_account_id)>Yes</option>
+                </select>
+                <label for="bank-account">Include this account in bank reconciliation</label>
+                <select id="bank-account" name="is_bank_account">
+                    <option value="0" @selected(! $record->is_bank_account)>No</option>
+                    <option value="1" @selected($record->is_bank_account)>Yes</option>
+                </select>
+                <button class="primary">Save classification</button>
+            </form>
+            <p><a href="{{ route('staff.cash-book.index') }}">Open cash book</a></p>
+        </section>
+    @endif
     @unless ($record->retired_at)
         <section class="panel stacked-panel admin-profile">
             <h2>Manage account</h2>

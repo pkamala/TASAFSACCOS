@@ -21,8 +21,17 @@ class LoanLifecycleTest extends TestCase
         $secretary = User::factory()->create(['board_role' => 'secretary']);
         $member = DB::table('members')->insertGetId([
             'first_name' => 'Asha', 'last_name' => 'Member', 'registration_no' => '10415',
-            'email' => 'asha@example.com', 'status' => 'active',
+            'email' => 'asha@example.com', 'status' => 'active', 'joining_date' => '2026-08-22',
         ]);
+        User::factory()->create(['member_id' => $member, 'loan_workflow_role' => 'board']);
+        $sponsors = [];
+        foreach (['SPONSOR-1', 'SPONSOR-2'] as $number) {
+            $id = DB::table('members')->insertGetId([
+                'first_name' => 'Sponsor', 'last_name' => 'Member', 'registration_no' => $number,
+                'email' => "$number@example.com", 'status' => 'active',
+            ]);
+            $sponsors[$id] = User::factory()->create(['member_id' => $id]);
+        }
         $pricing = DB::table('loan_pricing_revisions')->insertGetId([
             'annual_basis_points' => 1000, 'interest_method' => 'flat', 'insurance_basis_points' => 0,
             'processing_fee_minor' => 0, 'other_charges_minor' => 0,
@@ -33,17 +42,21 @@ class LoanLifecycleTest extends TestCase
             'reason' => 'Approved minimums', 'changed_at' => now(),
         ]);
         DB::table('member_verified_balances')->insert([
-            'member_id' => $member, 'as_of' => '2026-11-21', 'savings_minor' => 1000, 'shares_minor' => 2000,
+            'member_id' => $member, 'as_of' => '2026-11-21', 'savings_minor' => 100000, 'shares_minor' => 50000000,
             'evidence_reference' => 'Reviewed opening', 'recorded_by' => $admin->id, 'recorded_at' => now(),
         ]);
 
         $applications = "/staff/members/$member/loan-applications";
         $this->actingAs($admin)->post($applications, [
+            'sponsors' => ['SPONSOR-1', 'SPONSOR-2'],
             'submission_id' => (string) Str::uuid(), 'principal' => '1000.00',
             'pricing_revision_id' => $pricing, 'loan_category_id' => DB::table('loan_categories')->where('name', 'Staff loan')->value('id'), 'term_months' => 1, 'first_due_date' => '2026-12-22',
         ])->assertRedirect();
         $loan = DB::table('loan_applications')->sole()->id;
         $application = "$applications/$loan";
+        $recommendation = ['recommendation' => 'approve', 'recommendation_note' => 'Reviewed payment capacity'];
+        $this->confirmSponsors($loan, $sponsors);
+        $this->actingAs($admin)->post("$application/recommend", $recommendation)->assertRedirect($application);
         $minutes = "%PDF-1.4\n% Board minutes\n%%EOF";
         $this->actingAs($chair)->post("$application/review", [
             'decision' => 'approved', 'reason' => 'November board meeting',
@@ -74,6 +87,7 @@ class LoanLifecycleTest extends TestCase
         ]);
         $this->get("$applications/new?category=$emergency")->assertOk()->assertSee('15.00% annual interest');
         $secondApplication = [
+            'sponsors' => ['SPONSOR-1', 'SPONSOR-2'],
             'submission_id' => (string) Str::uuid(), 'principal' => '250.00', 'pricing_revision_id' => $pricing,
             'loan_category_id' => $emergency, 'term_months' => 1, 'first_due_date' => '2027-01-22',
         ];
@@ -86,6 +100,8 @@ class LoanLifecycleTest extends TestCase
             'id' => $second, 'loan_pricing_revision_id' => $emergencyPricing, 'annual_basis_points' => 1500,
             'insurance_minor' => 250, 'processing_fee_minor' => 1000, 'other_charges_minor' => 200,
         ]);
+        $this->confirmSponsors($second, $sponsors);
+        $this->actingAs($admin)->post("$applications/$second/recommend", $recommendation)->assertRedirect("$applications/$second");
         $this->actingAs($chair)->post("$applications/$second/review", [
             'decision' => 'approved', 'reason' => 'Emergency loan reviewed',
             'minutes' => UploadedFile::fake()->createWithContent('minutes.pdf', $minutes),
@@ -149,5 +165,13 @@ class LoanLifecycleTest extends TestCase
         return array_map(fn (int $id, string $name): int => DB::table('chart_accounts')->insertGetId([
             ...$source, 'legacy_id' => $id, 'account_type_id' => $type, 'code' => (string) $id, 'name' => $name, 'is_ledger_account' => true,
         ]), [1, 2, 3], ['Bank', 'Loan receivable', 'Interest income']);
+    }
+
+    private function confirmSponsors(int $loan, array $sponsors): void
+    {
+        foreach (DB::table('loan_sponsorships')->where('loan_application_id', $loan)->get() as $nomination) {
+            $this->actingAs($sponsors[$nomination->member_id])->post("/member/loan-sponsorships/$nomination->id/confirm")
+                ->assertRedirect('/member/account');
+        }
     }
 }

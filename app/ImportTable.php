@@ -64,7 +64,7 @@ class ImportTable
                         'inlineStr' => self::cellText($cell->is),
                         default => (string) $cell->v,
                     };
-                    if (in_array($header[$index] ?? null, ['as_of', 'joining_date'], true) && preg_match('/\A[0-9]{1,6}\z/', $value)) {
+                    if (in_array($header[$index] ?? null, ['as_of', 'joining_date', 'due_date'], true) && preg_match('/\A[0-9]{1,6}\z/', $value)) {
                         $epoch = new DateTimeImmutable($dates1904 ? '1904-01-01' : '1899-12-30');
                         $value = $epoch->modify('+'.(int) $value.' days')->format('Y-m-d');
                     }

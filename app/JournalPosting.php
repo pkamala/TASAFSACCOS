@@ -45,7 +45,7 @@ class JournalPosting
             $this->invalid('Select distinct posting accounts from the chart of accounts.');
         }
 
-        $expected = collect(json_decode($batch->items, true, flags: JSON_THROW_ON_ERROR))
+        $expected = collect(PayrollDeductions::confirmedItems($batch))
             ->filter(fn (array $item): bool => isset($item['loan_id']))->keyBy('loan_id');
         $disbursement = $batch->kind === 'disbursement';
         $transactions = $disbursement

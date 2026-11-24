@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\LoanApproval;
 use App\MemberFunds;
 use App\TablePage;
 use Illuminate\Http\Request;
@@ -15,13 +16,13 @@ class MemberAccountController extends Controller
         $id = $request->user()->member_id;
         abort_if($id === null, 403);
 
-        $member = DB::table('members')->find($id, ['first_name', 'last_name', 'registration_no', 'status', 'email']);
+        $member = DB::table('members')->find($id, ['first_name', 'last_name', 'registration_no', 'status', 'email', 'joining_date']);
         abort_if($member === null, 404);
 
         $loans = DB::table('loan_applications as application')->where('application.member_id', $id)
             ->leftJoin('loan_categories as category', 'category.id', '=', 'application.loan_category_id')
             ->orderByDesc('application.id')->simplePaginate(TablePage::size(), [
-                'application.id', 'application.status', 'application.principal_minor', 'application.term_months', 'category.name as category_name',
+                'application.id', 'application.status', 'application.principal_minor', 'application.term_months', 'application.interest_method', 'category.name as category_name',
             ]);
 
         $exit = DB::table('member_exits')->where('member_id', $id)->orderByDesc('id')->first(['status', 'requested_at', 'effective_on']);
@@ -30,6 +31,19 @@ class MemberAccountController extends Controller
             ->first(['amount_minor', 'status']);
         $balances = $funds->balances($id);
 
-        return view('member.account', compact('member', 'loans', 'exit', 'withdrawal', 'balances'));
+        $sponsorships = DB::table('loan_sponsorships as sponsorship')
+            ->where('sponsorship.member_id', $id)
+            ->join('loan_applications as loan', 'loan.id', '=', 'sponsorship.loan_application_id')
+            ->join('members as borrower', 'borrower.id', '=', 'loan.member_id')
+            ->where('loan.status', 'submitted')
+            ->where(fn ($query) => $query->whereIn('loan.approval_lane', LoanApproval::PendingLanes)
+                ->orWhereNull('loan.approval_lane')->orWhereNotNull('sponsorship.confirmed_at'))
+            ->orderByDesc('sponsorship.id')->simplePaginate(TablePage::size('sponsorships_page'), [
+                'sponsorship.id', 'sponsorship.confirmed_at', 'loan.id as application',
+                'loan.term_months', 'borrower.first_name', 'borrower.last_name', 'borrower.registration_no',
+                DB::raw('loan.principal_minor + loan.insurance_minor + loan.processing_fee_minor + loan.other_charges_minor as financed_minor'),
+            ], 'sponsorships_page')->withQueryString();
+
+        return view('member.account', compact('member', 'loans', 'exit', 'withdrawal', 'balances', 'sponsorships'));
     }
 }

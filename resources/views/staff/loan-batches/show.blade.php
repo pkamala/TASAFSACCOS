@@ -12,7 +12,11 @@
     @include('form-errors')
     @if ($record->status === 'confirmed' && $record->kind === 'repayment')
         @can('manage-members')
-            <p class="print-hide"><a href="{{ route('staff.payroll-journals.show', $record->id) }}">Review and post payment list journals</a></p>
+            @if ($confirmedTotal === 0)
+                <p>No deductions were received. There are no payment journals to post.</p>
+            @else
+                <p class="print-hide"><a href="{{ route('staff.payroll-journals.show', $record->id) }}">Review and post payment list journals</a></p>
+            @endif
         @endcan
     @endif
     @if ($record->status === 'confirmed' && $record->kind === 'disbursement' && collect($items)->pluck('loan_id')->filter()->isNotEmpty())
@@ -40,7 +44,7 @@
                                     <div>Shares {{ number_format($item['funds']['share_purchase'] / 100, 2) }}</div>
                                 @else
                                     @foreach ($item['allocations'] as $number => $allocation)
-                                        <div>Month {{ $number }} · Principal {{ number_format($allocation['principal'] / 100, 2) }} · Interest {{ number_format($allocation['interest'] / 100, 2) }}</div>
+                                        <div>Month {{ $number }} @isset($item['overdue_installments'][$number]) · Overdue since {{ $item['overdue_installments'][$number] }} @endisset · Principal {{ number_format($allocation['principal'] / 100, 2) }} · Interest {{ number_format($allocation['interest'] / 100, 2) }}</div>
                                     @endforeach
                                 @endif
                             </td>
@@ -58,6 +62,27 @@
         @endif
         @if ($record->evidence_id)<p class="print-hide"><a href="{{ route('staff.loan-batches.checklist', $record->id) }}">Download bank-stamped checklist (PDF)</a></p>@endif
     </section>
+    @if ($deductionReview !== null)
+        <section class="panel stacked-panel">
+            <h2>Confirmed payroll deductions</h2>
+            <p>TASAF Accounts reference {{ $deductionReview['reference'] }} · Actual total TZS {{ number_format($confirmedTotal / 100, 2) }}</p>
+            @if ($deductionReview['note'])<p>{{ $deductionReview['note'] }}</p>@endif
+            @if ($deductionDifferences)
+                <div class="table-wrap" tabindex="0" role="region" aria-label="Confirmed deduction exceptions">
+                    <table data-table-pages>
+                        <thead><tr><th scope="col">Member</th><th scope="col">Deduction</th><th class="money" scope="col">Planned (TZS)</th><th class="money" scope="col">Actual (TZS)</th><th scope="col">Status</th></tr></thead>
+                        <tbody>
+                            @foreach ($deductionDifferences as $row)
+                                <tr><th scope="row">{{ $members->get($row['member_id'])->registration_no }}</th><td>{{ $row['label'] }}</td>
+                                    <td class="money">{{ number_format($row['planned'] / 100, 2) }}</td><td class="money">{{ number_format($row['actual'] / 100, 2) }}</td><td>{{ $row['status'] }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            @endif
+        </section>
+    @endif
     @can('manage-members')
         @if ($fundTransactions->isNotEmpty())
             <section class="panel stacked-panel print-hide">
@@ -86,25 +111,28 @@
     @endif
     @if ($record->status === 'approved')
         @can('manage-members')
-            <section class="panel stacked-panel print-hide"><h2>Confirm completion</h2>
-                <form class="fields search" method="POST" action="{{ route('staff.loan-batches.confirm', $record->id) }}" enctype="multipart/form-data">
-                    @csrf
-                    <label for="effective_date">Actual transfer or repayment date</label>
-                    <input id="effective_date" name="effective_date" type="date" required>
-                    @if ($record->kind === 'disbursement')
+            @if ($record->kind === 'repayment')
+                <section class="panel stacked-panel print-hide">
+                    <h2>Confirm payroll</h2>
+                    <p><a href="{{ route('staff.payroll-deductions.show', $record->id) }}">Review actual payroll deductions</a></p>
+                </section>
+            @else
+                <section class="panel stacked-panel print-hide">
+                    <h2>Confirm completion</h2>
+                    <form class="fields search" method="POST" action="{{ route('staff.loan-batches.confirm', $record->id) }}" enctype="multipart/form-data">
+                        @csrf
+                        <label for="effective_date">Actual transfer date</label>
+                        <input id="effective_date" name="effective_date" type="date" required>
                         <label for="bank_checklist">Bank-stamped checklist (PDF)</label>
                         <input type="file" id="bank_checklist" name="bank_checklist" accept="application/pdf,.pdf" required>
                         @foreach ($items as $item)
                             <label for="ref-{{ $item['loan_id'] }}">Transfer reference for loan {{ $item['loan_id'] }}</label>
                             <input id="ref-{{ $item['loan_id'] }}" name="references[{{ $item['loan_id'] }}]" maxlength="100" required>
                         @endforeach
-                    @else
-                        <label for="payroll_reference">Confirmed TASAF Accounts payroll reference</label>
-                        <input id="payroll_reference" name="payroll_reference" maxlength="100" required>
-                    @endif
-                    <button class="primary">Confirm approved list</button>
-                </form>
-            </section>
+                        <button class="primary">Confirm approved list</button>
+                    </form>
+                </section>
+            @endif
         @endcan
     @endif
 @endsection

@@ -24,6 +24,9 @@
                 <span>{{ $branding->name }}</span>
             </a>
             <nav class="main-nav" aria-label="Main navigation">
+                @can('access-task-inbox')
+                    <a href="{{ route('staff.tasks.index') }}" data-task-count-url="{{ route('staff.tasks.count', [], false) }}" @if (request()->routeIs('staff.tasks.index')) aria-current="page" @endif>Tasks <span class="task-count" data-task-count hidden></span></a>
+                @endcan
                 @can('access-loan-workflow')
                     <details class="nav-menu">
                         <summary>Operations</summary>
@@ -36,6 +39,14 @@
                         </div>
                     </details>
                 @endcan
+                @cannot('access-loan-workflow')
+                    @can('access-loan-applications')
+                        @include('nav-link', ['destination' => 'staff.loan-applications.queue', 'label' => 'Loan review'])
+                    @endcan
+                    @can('submit-loans')
+                        @include('nav-link', ['destination' => 'staff.loan-intake', 'label' => 'Loan intake'])
+                    @endcan
+                @endcannot
                 @can('manage-members')
                     <details class="nav-menu">
                         <summary>Administration</summary>
@@ -45,6 +56,9 @@
                             @include('nav-link', ['destination' => 'staff.loan-categories.index', 'label' => 'Loan categories'])
                             @include('nav-link', ['destination' => 'staff.accounts.index', 'label' => 'Chart of accounts'])
                             @include('nav-link', ['destination' => 'staff.loan-ledger.index', 'label' => 'Ledger'])
+                            @include('nav-link', ['destination' => 'staff.ledger-financial-reports', 'label' => 'Financial reports'])
+                            @include('nav-link', ['destination' => 'staff.budgets.index', 'label' => 'Annual budget'])
+                            @include('nav-link', ['destination' => 'staff.assets.index', 'label' => 'Asset register'])
                             @include('nav-link', ['destination' => 'staff.board-roles.index', 'label' => 'Board roles'])
                             @include('nav-link', ['destination' => 'staff.data-imports.index', 'label' => 'Data imports'])
                             @include('nav-link', ['destination' => 'staff.mailing-accounts.index', 'label' => 'Mailing accounts'])

@@ -39,10 +39,11 @@ class MonthlyStatementDrafts
             ->join('loan_repayment_allocations as allocation', 'allocation.loan_repayment_receipt_id', '=', 'receipt.id')
             ->where('receipt.received_on', '<=', $end)->groupBy('receipt.loan_application_id')
             ->selectRaw('receipt.loan_application_id, sum(allocation.principal_minor) AS paid_minor');
-        $loans = DB::table('loan_disbursements as transfer')
-            ->join('loan_applications as loan', 'loan.id', '=', 'transfer.loan_application_id')
+        $loans = DB::table('loan_applications as loan')
+            ->leftJoin('loan_disbursements as transfer', 'transfer.loan_application_id', '=', 'loan.id')
+            ->leftJoin('active_loan_migrations as migration', 'migration.loan_application_id', '=', 'loan.id')
             ->leftJoinSub($principalPaid, 'paid', 'paid.loan_application_id', '=', 'loan.id')
-            ->where('transfer.transferred_on', '<=', $end)->groupBy('loan.member_id')->select('loan.member_id')
+            ->whereRaw('coalesce(transfer.transferred_on, migration.effective_on) <= ?', [$end])->groupBy('loan.member_id')->select('loan.member_id')
             ->selectRaw('sum(loan.principal_minor + loan.insurance_minor + loan.processing_fee_minor + loan.other_charges_minor - coalesce(paid.paid_minor, 0)) AS loan_minor');
 
         $legacy = DB::table('legacy_onboarding_rows as staged')->where('staged.source_table', 'loans')
@@ -55,6 +56,9 @@ class MonthlyStatementDrafts
                     ->on('verified.source_id', '=', 'staged.source_id')->on('verified.member_id', '=', 'owner.id')
                     ->where('verified.as_of', '=', $end);
             })
+            ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('active_loan_migrations as migrated')
+                ->whereColumn('migrated.source_sha256', 'staged.source_sha256')->whereColumn('migrated.source_id', 'staged.source_id')
+                ->where('migrated.effective_on', '<=', $end))
             ->whereRaw(<<<'SQL'
 NOT coalesce(staged.data->>'disbursement_date' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
     AND pg_input_is_valid(staged.data->>'disbursement_date', 'date')

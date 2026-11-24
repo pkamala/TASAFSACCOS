@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\DB;
 
 #[Fillable(['name', 'email', 'password'])]
 #[Hidden(['password', 'remember_token'])]
@@ -20,6 +21,12 @@ class User extends Authenticatable
     public function isBoardOfficer(): bool
     {
         return $this->is_staff_admin !== true && in_array($this->board_role, ['chairperson', 'secretary'], true);
+    }
+
+    public function hasLoanRole(string $role): bool
+    {
+        return $this->is_staff_admin !== true && $this->loan_workflow_role === $role && $this->member_id !== null
+            && DB::table('members')->where('id', $this->member_id)->where('status', 'active')->exists();
     }
 
     /**

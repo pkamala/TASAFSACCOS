@@ -22,14 +22,38 @@ class ChartAccountManagementController extends Controller
         $record = DB::table('chart_accounts as account')
             ->join('account_types as type', 'type.id', '=', 'account.account_type_id')
             ->join('account_categories as category', 'category.id', '=', 'type.account_category_id')
+            ->leftJoin('cash_book_accounts as cash', 'cash.chart_account_id', '=', 'account.id')
             ->leftJoin('users as creator', 'creator.id', '=', 'account.created_by')
             ->leftJoin('users as retiree', 'retiree.id', '=', 'account.retired_by')
             ->where('account.id', $account)
-            ->first(['account.*', 'type.name as type', 'category.name as category', 'creator.name as creator', 'retiree.name as retiree']);
+            ->first(['account.*', 'type.name as type', 'category.name as category', 'cash.chart_account_id as cash_book_account_id', 'cash.is_bank_account', 'creator.name as creator', 'retiree.name as retiree']);
         abort_if($record === null, 404);
         $replacement = DB::table('chart_accounts')->where('replaces_account_id', $account)->first(['id', 'code', 'name', 'retired_at', 'is_ledger_account']);
 
         return view('staff.chart-account', compact('record', 'replacement'));
+    }
+
+    public function updateCashBook(Request $request, int $account): RedirectResponse
+    {
+        $data = $request->validate([
+            'is_cash_book_account' => ['required', 'boolean'],
+            'is_bank_account' => ['sometimes', 'required', 'boolean'],
+        ]);
+        DB::transaction(function () use ($account, $data): void {
+            DB::selectOne('SELECT pg_advisory_xact_lock(hashtext(?))', ['chart-accounts']);
+            abort_unless(DB::table('chart_accounts')->where('id', $account)->where('is_ledger_account', true)->exists(), 404);
+
+            if ($data['is_cash_book_account']) {
+                DB::table('cash_book_accounts')->insertOrIgnore(['chart_account_id' => $account]);
+                if (array_key_exists('is_bank_account', $data)) {
+                    DB::table('cash_book_accounts')->where('chart_account_id', $account)->update(['is_bank_account' => (bool) $data['is_bank_account']]);
+                }
+            } else {
+                DB::table('cash_book_accounts')->where('chart_account_id', $account)->delete();
+            }
+        }, 3);
+
+        return redirect()->route('staff.chart-accounts.show', $account)->with('status', 'Cash book classification updated.');
     }
 
     public function replacement(int $account): View
@@ -97,6 +121,10 @@ class ChartAccountManagementController extends Controller
                 'replaces_account_id' => $replaces, 'created_by' => $actor, 'created_at' => now(), 'creation_reason' => $data['reason'],
             ]);
             if ($old) {
+                $cashAccount = DB::table('cash_book_accounts')->where('chart_account_id', $old->id)->first();
+                if ($cashAccount !== null) {
+                    DB::table('cash_book_accounts')->insert(['chart_account_id' => $id, 'is_bank_account' => $cashAccount->is_bank_account]);
+                }
                 $this->retireAccount($old->id, $actor, $data['reason']);
             }
 

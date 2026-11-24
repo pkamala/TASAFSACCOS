@@ -26,8 +26,12 @@ class GeneralJournalController extends Controller
 
     public function create(Request $request): View
     {
+        $cashBook = $request->routeIs('staff.cash-book.transactions.*');
+        $journalRoutes = $cashBook ? 'staff.cash-book.transactions' : 'staff.general-journals';
         $accounts = $this->activeAccounts()->orderBy('code')->orderBy('id')->get(['id', 'code', 'name']);
-        $preview = $request->session()->get('general_journal_preview');
+        $cashAccountIds = $cashBook ? DB::table('cash_book_accounts')->pluck('chart_account_id')->flip() : collect();
+        $hasCashAccounts = $accounts->contains(fn ($account): bool => $cashAccountIds->has($account->id));
+        $preview = $request->session()->get($this->previewKey($cashBook));
         $preview = ($preview['actor'] ?? null) === $request->user()->id ? $preview : null;
         $today = now('Africa/Dar_es_Salaam')->toDateString();
 
@@ -43,12 +47,14 @@ class GeneralJournalController extends Controller
             ]);
         }
 
-        return view('staff.general-journals.create', compact('accounts', 'inputs', 'preview', 'previewLines', 'today'));
+        return view('staff.general-journals.create', compact('accounts', 'inputs', 'preview', 'previewLines', 'today', 'cashBook', 'journalRoutes', 'cashAccountIds', 'hasCashAccounts'));
     }
 
     public function preview(Request $request): RedirectResponse
     {
-        $request->session()->forget('general_journal_preview');
+        $cashBook = $request->routeIs('staff.cash-book.transactions.*');
+        $previewKey = $this->previewKey($cashBook);
+        $request->session()->forget($previewKey);
         $data = $request->validate([
             'transaction_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:1900-01-01', 'before_or_equal:'.now('Africa/Dar_es_Salaam')->toDateString()],
             'category' => ['required', 'in:expense,fee,general'],
@@ -77,24 +83,26 @@ class GeneralJournalController extends Controller
             'transaction_date' => $data['transaction_date'], 'category' => $data['category'],
             'source_reference' => $data['source_reference'], 'description' => $data['description'],
         ];
-        DB::transaction(function () use ($lines, $journal): void {
-            $this->checkAccounts($lines->pluck('chart_account_id')->all());
+        DB::transaction(function () use ($lines, $journal, $cashBook): void {
+            $this->checkAccounts($lines->pluck('chart_account_id')->all(), $cashBook);
             $this->periods->requireOpenDates([$journal['transaction_date']], 'transaction_date');
         });
-        $request->session()->put('general_journal_preview', [
+        $request->session()->put($previewKey, [
             'token' => (string) Str::uuid(), 'actor' => $request->user()->id,
             'journal' => $journal, 'lines' => $lines->all(), 'input' => $data['lines'],
         ]);
 
-        return redirect()->route('staff.general-journals.create')->withFragment('journal-preview');
+        return redirect()->route($cashBook ? 'staff.cash-book.transactions.create' : 'staff.general-journals.create')->withFragment('journal-preview');
     }
 
     public function post(Request $request): RedirectResponse
     {
         $token = $request->validate(['token' => ['required', 'uuid']])['token'];
         $actor = $request->user()->id;
-        $preview = $request->session()->get('general_journal_preview');
-        $id = DB::transaction(function () use ($token, $actor, $preview): int {
+        $cashBook = $request->routeIs('staff.cash-book.transactions.*');
+        $previewKey = $this->previewKey($cashBook);
+        $preview = $request->session()->get($previewKey);
+        $id = DB::transaction(function () use ($token, $actor, $preview, $cashBook): int {
             DB::selectOne('SELECT pg_advisory_xact_lock(hashtext(?))', ['general-journal:'.$token]);
             $existing = DB::table('general_journals')->where('preview_token', $token)->where('posted_by', $actor)->value('id');
             if ($existing !== null) {
@@ -104,7 +112,7 @@ class GeneralJournalController extends Controller
             if (($preview['actor'] ?? null) !== $actor || ! hash_equals($preview['token'], $token)) {
                 throw ValidationException::withMessages(['journal' => 'Preview the journal before posting.']);
             }
-            $this->checkAccounts(array_column($preview['lines'], 'chart_account_id'));
+            $this->checkAccounts(array_column($preview['lines'], 'chart_account_id'), $cashBook);
             $this->periods->requireOpenDates([$preview['journal']['transaction_date']], 'transaction_date');
 
             $id = DB::table('general_journals')->insertGetId([
@@ -119,10 +127,10 @@ class GeneralJournalController extends Controller
             return $id;
         }, 3);
         if (($preview['token'] ?? null) === $token) {
-            $request->session()->forget('general_journal_preview');
+            $request->session()->forget($previewKey);
         }
 
-        return redirect()->route('staff.general-journals.show', $id);
+        return redirect()->route('staff.general-journals.show', $cashBook ? ['journal' => $id, 'cash_book' => 1] : $id);
     }
 
     public function show(int $journal): View
@@ -143,8 +151,20 @@ class GeneralJournalController extends Controller
         return DB::table('chart_accounts')->where('is_ledger_account', true)->whereNull('retired_at');
     }
 
-    private function checkAccounts(array $ids): void
+    private function previewKey(bool $cashBook): string
     {
+        return $cashBook ? 'cash_book_transaction_preview' : 'general_journal_preview';
+    }
+
+    private function checkAccounts(array $ids, bool $cashBook): void
+    {
+        if ($cashBook) {
+            DB::selectOne('SELECT pg_advisory_xact_lock_shared(hashtext(?))', ['chart-accounts']);
+            if (! DB::table('cash_book_accounts')->whereIn('chart_account_id', $ids)->exists()) {
+                throw ValidationException::withMessages(['lines' => 'Select at least one account included in the cash book.']);
+            }
+        }
+
         $accounts = $this->activeAccounts()->whereIn('id', $ids)->orderBy('id')->sharedLock()->get(['id']);
         if ($accounts->count() !== count($ids)) {
             throw ValidationException::withMessages(['lines' => 'Use a different active ledger account on each line.']);

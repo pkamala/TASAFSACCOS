@@ -5,6 +5,9 @@
     <div class="page-intro">
         <a class="print-hide" href="{{ route('staff.loan-ledger.index', ['from' => $from, 'to' => $to]) }}">SACCOS ledger trial balance</a>
         <p class="print-only">TASAF SACCOS</p>
+        <a class="print-hide" href="{{ route('staff.cash-book.index', compact('from', 'to')) }}">Cash book</a>
+        <a class="print-hide" href="{{ route('staff.budgets.index', ['year' => substr($to, 0, 4)]) }}">Annual budget</a>
+        <a class="print-hide" href="{{ route('staff.assets.index') }}">Asset register</a>
         <h1>Financial reports</h1>
         <p>Posted ledger activity · TZS</p>
     </div>

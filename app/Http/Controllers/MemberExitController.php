@@ -124,7 +124,7 @@ class MemberExitController extends Controller
             DB::table('member_exits')->where('id', $exit)->update([
                 'status' => 'finalized', 'finalized_by' => $request->user()->id, 'finalized_at' => $now, ...$data,
             ]);
-            DB::table('members')->where('id', $profile->id)->update(['status' => 'inactive', 'updated_at' => $now]);
+            DB::table('members')->where('id', $profile->id)->update(['status' => 'exited', 'updated_at' => $now]);
             $officer = User::query()->where('member_id', $profile->id)->first();
             if ($officer?->isBoardOfficer()) {
                 DB::table('board_role_changes')->insert([

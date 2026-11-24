@@ -68,6 +68,31 @@ class LedgerFinancialReportsTest extends TestCase
         $this->get("$path?from=2026-11-01&to=2026-11-05")->assertOk()
             ->assertViewHas('totals', fn (array $totals): bool => $totals['income'] === 0
                 && $totals['accumulated_result'] === 5000 && $totals['assets'] === 100000);
+
+        $budget = ['year' => 2026, 'account' => $income, 'amount' => '500'];
+        $this->post('/staff/budgets', [...$budget, 'account' => $bank])->assertSessionHasErrors('account');
+        $this->post('/staff/budgets', $budget)->assertRedirect('/staff/budgets?year=2026');
+        $this->post('/staff/budgets', [...$budget, 'amount' => '550'])->assertRedirect('/staff/budgets?year=2026');
+        $this->assertDatabaseCount('annual_budget_lines', 1);
+        $this->get('/staff/budgets?year=2026')->assertOk()
+            ->assertSee('550.00')->assertSee('300.00')->assertSee('-250.00');
+        $this->get('/staff/budgets?year=2027')->assertOk()->assertDontSee('550.00');
+    }
+
+    public function test_asset_register_tracks_book_value_and_rejects_excess_depreciation(): void
+    {
+        $admin = User::factory()->create(['is_staff_admin' => true]);
+        $asset = ['item' => 'Office computer', 'value' => '1200000', 'depreciation' => '250000.50'];
+
+        $this->actingAs(User::factory()->create())->post('/staff/assets', $asset)->assertForbidden();
+        $this->actingAs($admin)->post('/staff/assets', [...$asset, 'depreciation' => '1200000.01'])
+            ->assertSessionHasErrors('depreciation');
+        $this->post('/staff/assets', $asset)->assertRedirect('/staff/assets');
+
+        $record = DB::table('asset_register')->sole();
+        $this->get('/staff/assets')->assertOk()->assertSee('Office computer')->assertSee('949,999.50');
+        $this->patch("/staff/assets/$record->id", [...$asset, 'depreciation' => '300000'])->assertRedirect('/staff/assets');
+        $this->assertDatabaseHas('asset_register', ['id' => $record->id, 'depreciation_minor' => 30000000]);
     }
 
     private function accounts(): array

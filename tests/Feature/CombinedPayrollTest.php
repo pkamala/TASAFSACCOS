@@ -42,12 +42,12 @@ class CombinedPayrollTest extends TestCase
         ]);
         DB::table('loan_application_installments')->insert([
             'loan_application_id' => $loan, 'number' => 1, 'due_date' => '2026-11-30', 'opening_minor' => 100000,
-            'principal_minor' => 15000, 'interest_minor' => 0, 'payment_minor' => 15000, 'closing_minor' => 85000,
+            'principal_minor' => 14000, 'interest_minor' => 1000, 'payment_minor' => 15000, 'closing_minor' => 86000,
         ]);
 
         DB::table('loan_application_installments')->insert([
-            'loan_application_id' => $loan, 'number' => 2, 'due_date' => '2026-12-31', 'opening_minor' => 85000,
-            'principal_minor' => 85000, 'interest_minor' => 0, 'payment_minor' => 85000, 'closing_minor' => 0,
+            'loan_application_id' => $loan, 'number' => 2, 'due_date' => '2026-12-31', 'opening_minor' => 86000,
+            'principal_minor' => 86000, 'interest_minor' => 0, 'payment_minor' => 86000, 'closing_minor' => 0,
         ]);
         $prior = DB::table('loan_repayment_receipts')->insertGetId([
             'loan_application_id' => $loan, 'receipt_reference' => 'PRIOR-RECEIPT', 'received_on' => '2026-11-16',
@@ -71,6 +71,7 @@ class CombinedPayrollTest extends TestCase
         $batch = DB::table('loan_batches')->sole()->id;
         $url = "$path/$batch";
         $this->get($url)->assertOk()->assertSee('Monthly TASAF payroll list')->assertSee('160.25')->assertSee('Savings 50.25');
+        $this->get("$url/journals")->assertNotFound();
         $confirmation = ['effective_date' => '2026-11-22', 'payroll_reference' => 'ALREADY-USED'];
         $this->from($url)->post("$url/confirm", $confirmation)->assertSessionHasErrors('batch');
         $this->actingAs($reviewer)->post("$url/review", ['decision' => 'approved', 'review_note' => 'Payroll checked'])->assertRedirect($url);
@@ -88,7 +89,55 @@ class CombinedPayrollTest extends TestCase
         $this->assertDatabaseHas('member_fund_transactions', ['loan_batch_id' => $batch, 'kind' => 'share_purchase', 'signed_minor' => 1000]);
         $this->assertDatabaseHas('loan_batches', ['id' => $batch, 'status' => 'confirmed']);
         $this->assertSame(105025, app(MemberFunds::class)->balances($member)['savings']);
-        $this->get($url)->assertOk()->assertSee('Confirmed savings and share transactions')->assertSee('View or prepare loan journal');
+        $this->get($url)->assertOk()->assertSee('Confirmed savings and share transactions')->assertDontSee('View or prepare loan journal');
+        $this->get($url)->assertSee('Review and post payment list journals');
+
+        $journalUrl = "$url/journals";
+        $this->actingAs($reviewer)->get($journalUrl)->assertForbidden();
+        $this->actingAs($admin);
+        $accounts = $this->postingAccounts();
+        $this->get($journalUrl)->assertOk()->assertViewHas('defaults', []);
+        config(['app.demo_mode' => true]);
+        $this->get($journalUrl)->assertOk()->assertViewHas('defaults', $accounts)
+            ->assertSee('value="'.$accounts['share_purchase'].'" selected', false);
+        $this->get("/staff/loan-journal/$batch")->assertOk()->assertViewHas('defaults', $accounts)
+            ->assertSee('Review and post payment list journals')
+            ->assertSee('value="'.$accounts['offset'].'" selected', false);
+        config(['app.demo_mode' => false, 'payroll.posting_accounts.cash' => (string) $accounts['cash']]);
+        $this->get($journalUrl)->assertOk()->assertViewHas('defaults', ['cash' => $accounts['cash']]);
+        $this->from($journalUrl)->post("$journalUrl/preview", [...$accounts, 'share_purchase' => $accounts['savings_deposit']])
+            ->assertSessionHasErrors('journal');
+        $this->post("$journalUrl/preview", $accounts)->assertRedirect($journalUrl)->assertSessionHasNoErrors();
+        $token = session('payroll_journal_preview.token');
+        $this->get($journalUrl)->assertOk()->assertSee('Journal preview')->assertSee('Post all journals');
+        $this->assertDatabaseEmpty('loan_journal_postings');
+        $this->assertDatabaseEmpty('member_fund_journals');
+
+        DB::table('ledger_period_events')->insert([
+            'period' => '2026-11-01', 'action' => 'closed', 'recorded_by' => $admin->id, 'recorded_at' => now(), 'reason' => 'Month end',
+        ]);
+        $this->from($journalUrl)->post("$journalUrl/post", ['token' => $token])->assertSessionHasErrors('journal');
+        $this->assertDatabaseEmpty('loan_journal_postings');
+        $this->assertDatabaseEmpty('member_fund_journals');
+        DB::table('ledger_period_events')->insert([
+            'period' => '2026-11-01', 'action' => 'reopened', 'recorded_by' => $admin->id, 'recorded_at' => now(), 'reason' => 'Finish payroll',
+        ]);
+
+        $this->post("$journalUrl/post", ['token' => $token])->assertRedirect($journalUrl)->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('loan_journal_postings', ['loan_batch_id' => $batch, 'posted_by' => $admin->id]);
+        $this->assertDatabaseHas('loan_journal_lines', ['chart_account_id' => $accounts['principal'], 'signed_minor' => -9000]);
+        $this->assertDatabaseHas('loan_journal_lines', ['chart_account_id' => $accounts['offset'], 'signed_minor' => -1000]);
+        $this->assertDatabaseHas('member_fund_journals', [
+            'debit_account_id' => $accounts['cash'], 'credit_account_id' => $accounts['savings_deposit'], 'amount_minor' => 5025,
+        ]);
+        $this->assertDatabaseHas('member_fund_journals', [
+            'debit_account_id' => $accounts['cash'], 'credit_account_id' => $accounts['share_purchase'], 'amount_minor' => 1000,
+        ]);
+        $this->from($journalUrl)->post("$journalUrl/post", ['token' => $token])->assertSessionHasErrors('journal');
+        $this->assertDatabaseCount('loan_journal_postings', 1);
+        $this->assertDatabaseCount('member_fund_journals', 2);
+        $this->get($journalUrl)->assertOk()->assertSee('No outstanding journals.');
+
     }
 
     public function test_payroll_requires_verified_opening_balances_for_configured_contributors(): void
@@ -103,5 +152,27 @@ class CombinedPayrollTest extends TestCase
         $this->actingAs($admin)->from("$path/new")->post($path, ['kind' => 'repayment', 'period' => '2026-11'])
             ->assertRedirect("$path/new")->assertSessionHasErrors(['batch' => 'Verified opening balances are required for configured contributors. Missing balances: 1 (10415).']);
         $this->assertDatabaseEmpty('loan_batches');
+    }
+
+    private function postingAccounts(): array
+    {
+        $source = ['legacy_source_sha256' => str_repeat('a', 64)];
+        $category = DB::table('account_categories')->insertGetId([...$source, 'legacy_id' => 1, 'name' => 'Test category']);
+        $type = DB::table('account_types')->insertGetId([...$source, 'legacy_id' => 1, 'name' => 'Test type', 'account_category_id' => $category]);
+        $accounts = [];
+        foreach ([
+            'cash' => ['1100', 'Demo bank'],
+            'principal' => ['1200', 'Loan receivable'],
+            'offset' => ['4200', 'Interest income'],
+            'savings_deposit' => ['2200', 'Member savings'],
+            'share_purchase' => ['2210', 'Member shares'],
+        ] as $field => [$code, $name]) {
+            $id = count($accounts) + 1;
+            $accounts[$field] = DB::table('chart_accounts')->insertGetId([
+                ...$source, 'legacy_id' => $id, 'account_type_id' => $type, 'code' => $code, 'name' => $name, 'is_ledger_account' => true,
+            ]);
+        }
+
+        return $accounts;
     }
 }

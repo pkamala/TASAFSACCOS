@@ -4,6 +4,7 @@
     <div class="page-intro">
         <a href="{{ route('staff.data-imports.index') }}">Data imports</a>
         <h1>Verified legacy loan balances</h1>
+        <a href="{{ route('staff.active-loans.index') }}">Migrate active loans into payroll</a>
         <p>Record finance-reviewed principal balances for a closed month. Monthly statement drafts use these figures for the selected month-end only.</p>
     </div>
     @if (session('status'))<p role="status">{{ session('status') }}</p>@endif

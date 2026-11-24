@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\LedgerPeriods;
 use App\LoanEvidence;
 use App\Models\User;
 use App\MonthlyPayroll;
+use App\PayrollDeductions;
 use App\RecordLoanDisbursement;
 use App\RecordLoanRepayment;
 use App\RecordMemberFundTransaction;
@@ -16,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use stdClass;
 use Symfony\Component\HttpFoundation\Response;
 
 class LoanBatchController extends Controller
@@ -46,13 +49,14 @@ class LoanBatchController extends Controller
             'loan_ids' => ['required_if:kind,disbursement', 'array', 'max:100'],
             'loan_ids.*' => ['required', 'integer', 'min:1', 'distinct'],
             'period' => ['required_if:kind,repayment', 'date_format:Y-m', 'after_or_equal:1900-01', 'before_or_equal:2089-12'],
+            'include_overdue' => ['sometimes', 'boolean'],
             'allocations' => ['prohibited'],
             'contributions' => ['prohibited'],
         ]);
 
         $actor = $request->user()->id;
         $batch = $data['kind'] === 'repayment'
-            ? $payroll->prepare($data['period'], $actor)
+            ? $payroll->prepare($data['period'], $actor, (bool) ($data['include_overdue'] ?? false))
             : $this->prepareDisbursement($data['loan_ids'], $actor);
 
         return redirect()->route('staff.loan-batches.show', $batch);
@@ -85,7 +89,7 @@ class LoanBatchController extends Controller
         }, 3);
     }
 
-    public function show(int $batch): View
+    public function show(int $batch, PayrollDeductions $deductions): View
     {
         $record = DB::table('loan_batches')->find($batch);
         abort_if($record === null, 404);
@@ -98,7 +102,13 @@ class LoanBatchController extends Controller
         $fundTransactions = DB::table('member_fund_transactions')->where('loan_batch_id', $batch)
             ->orderBy('id')->get(['id', 'member_id', 'kind', 'signed_minor']);
 
-        return view('staff.loan-batches.show', compact('record', 'items', 'members', 'actors', 'fundTransactions'));
+        $deductionReview = json_decode($record->deduction_review ?? 'null', true, flags: JSON_THROW_ON_ERROR);
+        $deductionDifferences = $deductionReview === null ? [] : $deductions->differences($deductions->components($items), $deductionReview['overrides']);
+        $confirmedTotal = $deductionReview === null ? null : array_sum(array_column(PayrollDeductions::confirmedItems($record), 'amount'));
+
+        return view('staff.loan-batches.show', compact(
+            'record', 'items', 'members', 'actors', 'fundTransactions', 'deductionReview', 'deductionDifferences', 'confirmedTotal',
+        ));
     }
 
     public function review(Request $request, int $batch): RedirectResponse
@@ -129,7 +139,7 @@ class LoanBatchController extends Controller
         return redirect()->route('staff.loan-batches.show', $batch)->with('status', 'Review decision recorded.');
     }
 
-    public function confirm(Request $request, int $batch, RecordLoanDisbursement $transfers, RecordLoanRepayment $repayments, LoanEvidence $evidence, RecordMemberFundTransaction $funds): RedirectResponse
+    public function confirm(Request $request, int $batch, RecordLoanDisbursement $transfers, RecordLoanRepayment $repayments, LoanEvidence $evidence, RecordMemberFundTransaction $funds, LedgerPeriods $periods, PayrollDeductions $deductions): RedirectResponse
     {
         $data = $request->validate([
             'effective_date' => ['required', 'date_format:Y-m-d', 'before_or_equal:'.now('Africa/Dar_es_Salaam')->toDateString()],
@@ -137,9 +147,15 @@ class LoanBatchController extends Controller
             'references' => ['nullable', 'array', 'max:100'],
             'references.*' => ['required', 'string', 'max:100'],
             'payroll_reference' => ['nullable', 'string', 'max:100'],
+            'deduction_token' => ['nullable', 'string', 'size:40'],
+            'deduction_note' => ['nullable', 'string', 'max:500'],
+            'confirm_exact' => ['sometimes', 'accepted'],
         ]);
 
-        DB::transaction(function () use ($request, $batch, $data, $transfers, $repayments, $evidence, $funds): void {
+        DB::transaction(function () use ($request, $batch, $data, $transfers, $repayments, $evidence, $funds, $periods, $deductions): void {
+            if (DB::table('loan_batches')->where('id', $batch)->where('kind', 'repayment')->exists()) {
+                DB::selectOne('SELECT pg_advisory_xact_lock(hashtext(?))', ['payroll-schedule']);
+            }
             $record = DB::table('loan_batches')->lockForUpdate()->find($batch);
             abort_if($record === null, 404);
             if ($record->status !== 'approved') {
@@ -157,6 +173,14 @@ class LoanBatchController extends Controller
             }
             if (! $disbursement && ! isset($data['payroll_reference'])) {
                 $this->invalid('Provide the confirmed TASAF Accounts payroll reference.');
+            }
+
+            $deductionReview = $disbursement ? null : $this->deductionReview($request, $data, $record, $items, $deductions);
+            if ($deductionReview !== null) {
+                $items = PayrollDeductions::apply($items, $deductionReview['overrides']);
+                if ($items === []) {
+                    $periods->requireOpenDates([$data['effective_date']], 'effective_date');
+                }
             }
 
             $members = DB::table('members')->whereIn('id', array_column($items, 'member_id'))
@@ -209,10 +233,44 @@ class LoanBatchController extends Controller
                 'confirmed_at' => now(),
                 'effective_date' => $data['effective_date'],
                 'evidence_id' => isset($data['bank_checklist']) ? $evidence->record($data['bank_checklist']) : null,
+                'deduction_review' => $deductionReview === null ? null : json_encode($deductionReview, JSON_THROW_ON_ERROR),
             ]);
         }, 3);
 
+        if ($request->session()->get('payroll_deduction_preview.batch') === $batch) {
+            $request->session()->forget('payroll_deduction_preview');
+        }
+
         return redirect()->route('staff.loan-batches.show', $batch)->with('status', 'Approved list confirmed.');
+    }
+
+    private function deductionReview(Request $request, array $data, stdClass $record, array $items, PayrollDeductions $deductions): ?array
+    {
+        $preview = $request->session()->get('payroll_deduction_preview');
+        $hasPreview = ($preview['batch'] ?? null) === $record->id && ($preview['actor'] ?? null) === $request->user()->id;
+        $token = $data['deduction_token'] ?? null;
+        if ($token === null && ! $hasPreview) {
+            return isset($data['confirm_exact']) ? [
+                'overrides' => [], 'source_sha256' => null, 'reference' => $data['payroll_reference'], 'note' => null,
+            ] : null;
+        }
+        if ($token === null || ! $hasPreview || ! hash_equals($preview['token'], $token)
+            || ! hash_equals($preview['approved_sha256'], hash('sha256', $record->items))) {
+            throw ValidationException::withMessages(['deductions' => 'Preview the actual deductions again before confirming this payroll.']);
+        }
+
+        $differences = collect($deductions->differences($deductions->components($items), $preview['overrides']));
+        if ($differences->contains('status', 'Excess')) {
+            throw ValidationException::withMessages(['deductions' => 'Resolve excess deductions with TASAF Accounts before confirming payroll.']);
+        }
+        if ($differences->isNotEmpty() && ! isset($data['deduction_note'])) {
+            throw ValidationException::withMessages(['deduction_note' => 'Record a finance review note for the missed or partial deductions.']);
+        }
+
+        return [
+            'overrides' => $preview['overrides'], 'source_sha256' => $preview['source_sha256'],
+            'reference' => $data['payroll_reference'], 'note' => $data['deduction_note'] ?? null,
+        ];
     }
 
     public function checklist(int $batch, LoanEvidence $evidence): Response

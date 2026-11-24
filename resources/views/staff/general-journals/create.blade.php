@@ -1,17 +1,29 @@
 @extends('layout')
-@section('title', 'Prepare general journal')
+@section('title', $cashBook ? 'Record past cash-book transaction' : 'Prepare general journal')
 @section('content')
     <div class="page-intro">
-        <a href="{{ route('staff.general-journals.index') }}">General journals</a>
-        <h1>Prepare general journal</h1>
+        @if ($cashBook)
+            <a href="{{ route('staff.cash-book.index') }}">Cash book</a>
+            <h1>Record past cash-book transaction</h1>
+            <p>Use the original transaction date and the bank, cheque, or voucher reference. Debit the cash or bank account for receipts and credit it for payments.</p>
+        @else
+            <a href="{{ route('staff.general-journals.index') }}">General journals</a>
+            <h1>Prepare general journal</h1>
+        @endif
         <p>Use the dedicated loan and member fund workflows for transactions that change member balances.</p>
     </div>
     @include('form-errors')
+    @if ($cashBook && ! $hasCashAccounts)
+        <section class="panel">
+            <p>Include an active cash or bank account in the cash book before recording a transaction.</p>
+            <a href="{{ route('staff.accounts.index') }}">Open chart of accounts</a>
+        </section>
+    @else
     <section class="panel">
-        <form method="POST" action="{{ route('staff.general-journals.preview') }}" class="fields">
+        <form method="POST" action="{{ route($journalRoutes.'.preview') }}" class="fields">
             @csrf
             <label for="transaction-date">Ledger date</label>
-            <input id="transaction-date" type="date" name="transaction_date" max="{{ $today }}" value="{{ is_string(old('transaction_date')) ? old('transaction_date') : ($preview['journal']['transaction_date'] ?? $today) }}" required>
+            <input id="transaction-date" type="date" name="transaction_date" max="{{ $today }}" value="{{ is_string(old('transaction_date')) ? old('transaction_date') : ($preview['journal']['transaction_date'] ?? ($cashBook ? '' : $today)) }}" required>
             <label for="category">Category</label>
             <select id="category" name="category" required>
                 @foreach (['expense' => 'Expense', 'fee' => 'Fee', 'general' => 'General'] as $value => $label)
@@ -45,7 +57,7 @@
             <p>{{ $preview['journal']['transaction_date'] }} · {{ ucfirst($preview['journal']['category']) }} · {{ $preview['journal']['source_reference'] }}</p>
             <p>{{ $preview['journal']['description'] }}</p>
             @include('staff.general-journals.lines', ['lines' => $previewLines])
-            <form method="POST" action="{{ route('staff.general-journals.post') }}">
+            <form method="POST" action="{{ route($journalRoutes.'.post') }}">
                 @csrf
                 <input type="hidden" name="token" value="{{ $preview['token'] }}">
                 <button class="primary">Post previewed journal</button>
@@ -87,4 +99,5 @@
             updateLines();
         })();
     </script>
+    @endif
 @endsection

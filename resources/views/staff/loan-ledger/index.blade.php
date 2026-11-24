@@ -11,6 +11,7 @@
         <a class="print-hide" href="{{ route('staff.ledger-periods.index') }}">Ledger periods</a>
         <a class="print-hide" href="{{ route('staff.ledger-opening.index') }}">Opening journal</a>
         <a class="print-hide" href="{{ route('staff.ledger-financial-reports', ['from' => $from, 'to' => $to]) }}">Financial reports</a>
+        <a class="print-hide" href="{{ route('staff.cash-book.index', compact('from', 'to')) }}">Cash book</a>
         <h1>SACCOS ledger trial balance</h1>
         <p>{{ $from }} to {{ $to }} · TZS</p>
         <p class="note">Includes the posted opening journal, loan, member fund, and general journals, balance transfers, and reversals. Opening balances carry forward earlier activity and include the cutover journal if it is dated on the period’s first day.</p>

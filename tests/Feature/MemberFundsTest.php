@@ -18,7 +18,7 @@ class MemberFundsTest extends TestCase
         $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 11, 22)->setTime(12, 0));
         $member = DB::table('members')->insertGetId([
             'first_name' => 'Asha', 'last_name' => 'Mushi', 'registration_no' => '10415',
-            'email' => 'asha@example.com', 'status' => 'active',
+            'email' => 'asha@example.com', 'status' => 'active', 'joining_date' => '2026-08-22',
         ]);
         $owner = User::factory()->create(['email' => 'asha@example.com', 'member_id' => $member, 'board_role' => 'chairperson']);
         $reviewer = User::factory()->create(['board_role' => 'secretary']);
@@ -30,7 +30,7 @@ class MemberFundsTest extends TestCase
         $this->actingAs($owner)->post($path, $deposit)->assertForbidden();
         $this->actingAs($admin)->from($path)->post($path, $deposit)->assertSessionHasErrors('funds');
         $this->from($openingPath)->post($openingPath, [
-            'savings' => '100000', 'shares' => '40000', 'as_of' => '2026-11-21', 'evidence_reference' => 'Opening statement',
+            'savings' => '100000', 'shares' => '490000', 'as_of' => '2026-11-21', 'evidence_reference' => 'Opening statement',
         ])->assertRedirect($openingPath);
         DB::table('loan_eligibility_revisions')->insert([
             'min_savings_minor' => 10000000, 'min_shares_minor' => 5000000, 'reason' => 'Policy',
@@ -41,7 +41,7 @@ class MemberFundsTest extends TestCase
         $this->post($path, $deposit)->assertRedirect($path);
         $this->post($path, [...$deposit, 'kind' => 'share_purchase', 'amount' => '10000'])->assertRedirect($path);
         $this->assertDatabaseCount('member_fund_transactions', 2);
-        $this->get($path)->assertOk()->assertSee('125,000.25')->assertSee('50,000.00')->assertSee('RECEIPT-S1');
+        $this->get($path)->assertOk()->assertSee('125,000.25')->assertSee('500,000.00')->assertSee('RECEIPT-S1');
         $this->assertNull(app(LoanEligibility::class)->details($member)['reason']);
         $this->from($openingPath)->post($openingPath, [
             'savings' => '200000', 'shares' => '50000', 'as_of' => '2026-11-22', 'evidence_reference' => 'Replacement statement',
