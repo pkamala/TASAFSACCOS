@@ -34,24 +34,22 @@
                 </form>
             </section>
         @endif
-        @if ($login && ! $login->is_staff_admin && ($profile->status === 'active' || $login->loan_workflow_role))
+        @if ($login && ! $login->is_staff_admin && ($profile->status === 'active' || $login->loan_workflow_roles))
             <section class="panel">
-                <h2>Loan workflow role</h2>
+                <h2>Loan workflow roles</h2>
                 <form method="POST" action="{{ route('staff.members.loan-role.update', $profile->id) }}" class="fields">
                     @csrf
                     @method('PATCH')
-                    <label for="loan_workflow_role">Assigned role</label>
-                    <select id="loan_workflow_role" name="loan_workflow_role">
-                        <option value="">No assigned role</option>
-                        @if ($profile->status === 'active')
-                            @foreach (\App\LoanApproval::Roles as $role => $label)
-                                <option value="{{ $role }}" @selected(old('loan_workflow_role', $login->loan_workflow_role) === $role)>{{ $label }}</option>
-                            @endforeach
-                        @endif
-                    </select>
+                    @if ($profile->status === 'active')
+                        @foreach (\App\LoanApproval::Roles as $role => $label)
+                            <label><input type="checkbox" name="loan_workflow_roles[]" value="{{ $role }}" @checked(in_array($role, (array) old('loan_workflow_roles', $login->loan_workflow_roles), true))> {{ $label }}</label>
+                        @endforeach
+                    @else
+                        <p>Saving clears the assigned loan roles for this member.</p>
+                    @endif
                     <label for="role_reason">Reason for role change</label>
                     <input id="role_reason" name="role_reason" maxlength="500" required>
-                    <button class="primary">Save loan role</button>
+                    <button class="primary">Save loan roles</button>
                 </form>
             </section>
         @endif

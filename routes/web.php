@@ -46,6 +46,7 @@ use App\Http\Controllers\MonthlyStatementDraftController;
 use App\Http\Controllers\MonthlyStatementReviewController;
 use App\Http\Controllers\PayrollDeductionController;
 use App\Http\Controllers\PayrollJournalController;
+use App\Http\Controllers\StaffAdminController;
 use App\Http\Controllers\StaffPasswordSetupController;
 use App\Http\Controllers\StaffSessionController;
 use App\Http\Controllers\TaskInboxController;
@@ -181,6 +182,8 @@ Route::prefix('staff')->name('staff.')->middleware(['auth', 'auth.session', 'can
     Route::post('/loan-categories', [LoanCategoryController::class, 'store'])->name('loan-categories.store');
     Route::get('/loan-pricing', [LoanPricingController::class, 'edit'])->name('loan-pricing.edit');
     Route::patch('/loan-pricing', [LoanPricingController::class, 'update'])->name('loan-pricing.update');
+    Route::get('/admin-accounts', [StaffAdminController::class, 'index'])->name('admin-accounts.index');
+    Route::post('/admin-accounts', [StaffAdminController::class, 'store'])->name('admin-accounts.store');
     Route::get('/members', [MemberProfileController::class, 'index'])->name('members.index');
     Route::get('/members/new', [MemberProfileController::class, 'create'])->name('members.create');
     Route::post('/members', [MemberProfileController::class, 'store'])->name('members.store');

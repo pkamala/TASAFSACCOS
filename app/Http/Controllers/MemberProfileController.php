@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\LoanApproval;
+use App\Models\User;
 use App\TablePage;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\RedirectResponse;
@@ -9,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
@@ -89,7 +92,7 @@ class MemberProfileController extends Controller
             ->select('member_audits.*', 'users.name as actor')
             ->simplePaginate(TablePage::size());
 
-        $login = DB::table('users')->where('member_id', $member)->first(['email', 'is_staff_admin', 'local_setup_pending', 'loan_workflow_role']);
+        $login = User::query()->where('member_id', $member)->first(['email', 'is_staff_admin', 'local_setup_pending', 'loan_workflow_roles']);
 
         $exitedOn = DB::table('member_exits')->where('member_id', $member)->where('status', 'finalized')->value('effective_on');
 
@@ -133,31 +136,35 @@ class MemberProfileController extends Controller
     public function updateLoanRole(Request $request, int $member): RedirectResponse
     {
         $data = $request->validate([
-            'loan_workflow_role' => ['present', 'nullable', 'in:staff,committee,board'],
+            'loan_workflow_roles' => ['sometimes', 'array', 'list', 'max:3'],
+            'loan_workflow_roles.*' => ['required', 'string', 'distinct', Rule::in(array_keys(LoanApproval::Roles))],
             'role_reason' => ['required', 'string', 'max:500'],
         ]);
-        DB::transaction(function () use ($request, $member, $data): void {
+        $roles = array_values(array_intersect(array_keys(LoanApproval::Roles), $data['loan_workflow_roles'] ?? []));
+        DB::transaction(function () use ($request, $member, $data, $roles): void {
             DB::selectOne('SELECT pg_advisory_xact_lock(hashtext(?))', ['board-roles']);
             $profile = DB::table('members')->lockForUpdate()->find($member);
             abort_if($profile === null, 404);
-            $login = DB::table('users')->where('member_id', $member)->where('is_staff_admin', false)->lockForUpdate()->first();
-            if ($login === null || ($profile->status !== 'active' && $data['loan_workflow_role'] !== null)) {
-                throw ValidationException::withMessages(['loan_workflow_role' => 'Assign loan roles to active members with a regular member login.']);
+            $login = User::query()->where('member_id', $member)->where('is_staff_admin', false)->lockForUpdate()->first();
+            if ($login === null || ($profile->status !== 'active' && $roles !== [])) {
+                throw ValidationException::withMessages(['loan_workflow_roles' => 'Assign loan roles to active members with a regular member login.']);
             }
-            if ($login->loan_workflow_role === $data['loan_workflow_role']) {
+            $previous = $login->loan_workflow_roles;
+            if ($previous === $roles) {
                 return;
             }
-            DB::table('users')->where('id', $login->id)->update(['loan_workflow_role' => $data['loan_workflow_role'], 'updated_at' => now()]);
+            $login->loan_workflow_roles = $roles;
+            $login->save();
             DB::table('member_audits')->insert([
                 'member_id' => $member, 'actor_id' => $request->user()->id, 'recorded_at' => now(),
                 'changes' => json_encode([
-                    'loan_workflow_role' => ['before' => $login->loan_workflow_role, 'after' => $data['loan_workflow_role']],
+                    'loan_workflow_roles' => ['before' => $previous, 'after' => $roles],
                     'role_reason' => ['before' => null, 'after' => $data['role_reason']],
                 ], JSON_THROW_ON_ERROR),
             ]);
         }, 3);
 
-        return redirect()->route('staff.members.show', $member)->with('status', 'Loan workflow role saved.');
+        return redirect()->route('staff.members.show', $member)->with('status', 'Loan workflow roles saved.');
     }
 
     public function updatePayroll(Request $request, int $member): RedirectResponse

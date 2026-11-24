@@ -36,10 +36,10 @@ class LoanApplicationTest extends TestCase
         $committeeMember = DB::table('members')->insertGetId([
             'first_name' => 'Committee', 'last_name' => 'Officer', 'registration_no' => 'COMMITTEE-1', 'email' => 'committee@example.com', 'status' => 'active',
         ]);
-        $creator = User::factory()->create(['member_id' => $staff, 'loan_workflow_role' => 'staff']);
-        $committee = User::factory()->create(['member_id' => $committeeMember, 'loan_workflow_role' => 'committee']);
+        $creator = User::factory()->create(['member_id' => $staff, 'loan_workflow_roles' => ['staff', 'committee']]);
+        $committee = User::factory()->create(['member_id' => $committeeMember, 'loan_workflow_roles' => ['committee']]);
         if ($borrowerRole !== null) {
-            User::factory()->create(['member_id' => $member, 'loan_workflow_role' => $borrowerRole]);
+            User::factory()->create(['member_id' => $member, 'loan_workflow_roles' => ['staff', $borrowerRole]]);
         }
         $sponsorNumbers = ['SPONSOR-1', 'SPONSOR-2', 'SPONSOR-3'];
         $sponsors = [];
@@ -142,6 +142,8 @@ class LoanApplicationTest extends TestCase
         ]);
         $this->get('/staff/loan-register?status=submitted')->assertOk()->assertSee('10415')->assertSee('Print register');
         $this->get('/staff/loan-register?status=approved')->assertOk()->assertDontSee('10415');
+        $this->actingAs($creator)->get('/staff/loan-applications')->assertOk()->assertSee($url);
+        $this->post("$url/review", $decision)->assertForbidden();
         $this->actingAs($otherReviewer)->post("$url/review", $decision)->assertForbidden();
 
         $this->actingAs($reviewer)->get('/staff/loan-applications')->assertOk()->assertSee('10415')->assertSee($url);
@@ -189,7 +191,7 @@ class LoanApplicationTest extends TestCase
         foreach (['BORROWER', 'INACTIVE', 'ADMIN'] as $number) {
             User::factory()->create(['member_id' => $members[$number], 'is_staff_admin' => $number === 'ADMIN']);
         }
-        $intake = User::factory()->create(['member_id' => $members['ELIGIBLE'], 'loan_workflow_role' => 'staff']);
+        $intake = User::factory()->create(['member_id' => $members['ELIGIBLE'], 'loan_workflow_roles' => ['staff']]);
         $url = '/staff/members/'.$members['BORROWER'].'/loan-sponsors';
 
         $this->actingAs(User::factory()->create())->getJson($url)->assertForbidden();

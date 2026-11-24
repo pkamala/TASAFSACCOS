@@ -20,7 +20,8 @@ class LoanApproval
 
     public function boardBorrower(Builder $query): Builder
     {
-        return $query->where('is_staff_admin', false)->where(fn (Builder $role) => $role->whereIn('loan_workflow_role', ['committee', 'board'])
+        return $query->where('is_staff_admin', false)->where(fn (Builder $role) => $role->whereJsonContains('loan_workflow_roles', 'committee')
+            ->orWhereJsonContains('loan_workflow_roles', 'board')
             ->orWhereIn('board_role', ['chairperson', 'secretary']));
     }
 

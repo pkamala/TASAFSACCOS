@@ -51,6 +51,7 @@
                     <details class="nav-menu">
                         <summary>Administration</summary>
                         <div class="nav-options">
+                            @include('nav-link', ['destination' => 'staff.admin-accounts.index', 'label' => 'Admin accounts'])
                             @include('nav-link', ['destination' => 'staff.members.index', 'label' => 'Members'])
                             @include('nav-link', ['destination' => 'staff.member-savings.index', 'label' => 'Member savings'])
                             @include('nav-link', ['destination' => 'staff.loan-categories.index', 'label' => 'Loan categories'])

@@ -23,7 +23,7 @@ class LoanLifecycleTest extends TestCase
             'first_name' => 'Asha', 'last_name' => 'Member', 'registration_no' => '10415',
             'email' => 'asha@example.com', 'status' => 'active', 'joining_date' => '2026-08-22',
         ]);
-        User::factory()->create(['member_id' => $member, 'loan_workflow_role' => 'board']);
+        User::factory()->create(['member_id' => $member, 'loan_workflow_roles' => ['board']]);
         $sponsors = [];
         foreach (['SPONSOR-1', 'SPONSOR-2'] as $number) {
             $id = DB::table('members')->insertGetId([

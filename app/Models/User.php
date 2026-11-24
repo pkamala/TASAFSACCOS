@@ -25,7 +25,7 @@ class User extends Authenticatable
 
     public function hasLoanRole(string $role): bool
     {
-        return $this->is_staff_admin !== true && $this->loan_workflow_role === $role && $this->member_id !== null
+        return $this->is_staff_admin !== true && in_array($role, $this->loan_workflow_roles ?? [], true) && $this->member_id !== null
             && DB::table('members')->where('id', $this->member_id)->where('status', 'active')->exists();
     }
 
@@ -41,6 +41,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'is_staff_admin' => 'boolean',
             'local_setup_pending' => 'boolean',
+            'loan_workflow_roles' => 'array',
         ];
     }
 }

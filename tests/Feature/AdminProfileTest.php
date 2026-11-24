@@ -27,6 +27,29 @@ class AdminProfileTest extends TestCase
         $this->assertDatabaseHas('admin_profile_audits', ['user_id' => $admin->id]);
     }
 
+    public function test_an_admin_can_create_a_standalone_administrator(): void
+    {
+        $admin = User::factory()->create(['is_staff_admin' => true]);
+        $path = '/staff/admin-accounts';
+        $data = [
+            'name' => 'Operations Administrator',
+            'email' => 'Operations@example.com',
+            'password' => 'Example-admin-password-24',
+            'password_confirmation' => 'Example-admin-password-24',
+        ];
+
+        $this->actingAs(User::factory()->create())->post($path, $data)->assertForbidden();
+        $this->actingAs($admin)->get($path)->assertOk()->assertSee('Create admin account');
+        $this->post($path, [...$data, 'member_id' => 1000])->assertRedirect($path);
+
+        $newAdmin = User::query()->where('email', 'operations@example.com')->sole();
+        $this->assertTrue($newAdmin->is_staff_admin);
+        $this->assertNull($newAdmin->member_id);
+        $this->assertTrue(Hash::check($data['password'], $newAdmin->password));
+        $this->assertDatabaseHas('admin_profile_audits', ['user_id' => $newAdmin->id]);
+        $this->post($path, $data)->assertSessionHasErrors('email');
+    }
+
     public function test_password_rotation_requires_the_current_password_and_keeps_secrets_out_of_the_audit(): void
     {
         $admin = User::factory()->create(['is_staff_admin' => true]);

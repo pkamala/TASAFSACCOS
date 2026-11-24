@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -128,10 +129,14 @@ class MembershipControlsTest extends TestCase
 
         $this->actingAs($login)->patch("$profile/status", $change)->assertForbidden();
         $this->get('/member/account')->assertOk()->assertSee('Joined 22 Aug 2026')->assertSee('3 months');
-        $role = ['loan_workflow_role' => 'staff', 'role_reason' => 'Assign loan intake'];
+        $role = ['loan_workflow_roles' => ['staff', 'committee'], 'role_reason' => 'Assign loan intake'];
         $this->patch("$profile/loan-role", $role)->assertForbidden();
         $this->actingAs($admin)->patch("$profile/loan-role", $role)->assertRedirect($profile);
-        $this->actingAs($login->fresh())->get('/staff/loan-intake')->assertOk();
+        $assigned = $login->fresh();
+        $this->assertTrue($assigned->hasLoanRole('staff'));
+        $this->assertTrue($assigned->hasLoanRole('committee'));
+        $this->actingAs($assigned)->get('/staff/loan-intake')->assertOk();
+        $this->get('/staff/tasks')->assertOk();
 
         $this->actingAs($admin)->patch("$profile/status", $change)->assertRedirect($profile);
         $this->actingAs($login)->get('/staff/loan-intake')->assertForbidden();
@@ -145,6 +150,32 @@ class MembershipControlsTest extends TestCase
         $this->patch("$profile/status", [...$change, 'membership_status' => 'exited'])->assertSessionHasErrors('membership_status');
         $this->patch("$profile/status", [...$change, 'membership_status' => 'active'])->assertRedirect($profile);
         $this->assertDatabaseHas('members', ['id' => $member, 'status' => 'active']);
+    }
+
+    public function test_shared_password_configuration_runs_only_in_demo_and_preserves_admin_passwords(): void
+    {
+        $member = $this->member();
+        $admin = User::factory()->create(['is_staff_admin' => true]);
+        $registered = DB::table('members')->insertGetId([
+            'first_name' => 'Existing', 'last_name' => 'Member', 'registration_no' => 'EXISTING',
+            'email' => 'existing@example.com', 'status' => 'active',
+        ]);
+        $existing = User::factory()->create(['member_id' => $registered, 'local_setup_pending' => true]);
+        $password = 'Shared-demo-test-password';
+
+        config(['app.demo_mode' => false]);
+        $this->artisan('members:set-demo-passwords')->assertFailed();
+        $this->assertDatabaseMissing('users', ['member_id' => $member]);
+
+        config(['app.demo_mode' => true]);
+        $this->artisan('members:set-demo-passwords')
+            ->expectsQuestion('Demo member password', $password)->assertSuccessful();
+
+        $created = User::query()->where('member_id', $member)->sole();
+        $this->assertTrue(Hash::check($password, $created->password));
+        $this->assertTrue(Hash::check($password, $existing->fresh()->password));
+        $this->assertFalse($existing->fresh()->local_setup_pending);
+        $this->assertSame($admin->password, $admin->fresh()->password);
     }
 
     private function member(?int $legacyId = null): int

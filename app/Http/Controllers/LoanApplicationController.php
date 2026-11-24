@@ -39,7 +39,12 @@ class LoanApplicationController extends Controller
             ]);
         if (! $actor->is_staff_admin) {
             if ($actor->can('review-loan-applications')) {
-                $approval->forReviewer($query, $actor, 'application');
+                $query->where(function ($visible) use ($approval, $actor): void {
+                    $visible->where(fn ($reviewable) => $approval->forReviewer($reviewable, $actor, 'application'));
+                    if ($actor->hasLoanRole('staff')) {
+                        $visible->orWhere('application.created_by', $actor->id);
+                    }
+                });
             } else {
                 $query->where('application.created_by', $actor->id);
             }
