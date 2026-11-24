@@ -18,6 +18,9 @@
     </div>
     @if (session('status'))<p role="status">{{ session('status') }}</p>@endif
     @include('form-errors')
+    @if ($record->kind === 'repayment')
+        <p class="print-hide"><a href="{{ route('staff.payroll-journals.show', $record->id) }}">Review and post payment list journals</a></p>
+    @endif
     @unless ($posting)
         <section class="panel admin-profile print-hide">
             <h2>Posting accounts</h2>
@@ -25,7 +28,7 @@
             <form class="fields" method="POST" action="{{ route('staff.loan-journal.preview', $record->id) }}">
                 @csrf
                 @foreach (['cash_account' => ['Cash or bank', 'cash'], 'principal_account' => ['Loan principal receivable', 'principal'], 'offset_account' => [$offset, 'offset']] as $field => [$label, $key])
-                    @php($selected = old($field, $preview['accounts'][$key] ?? ''))
+                    @php($selected = old($field, $preview['accounts'][$key] ?? $defaults[$key] ?? ''))
                     <label for="{{ $field }}">{{ $label }} @if ($key === 'offset')<small>Required if the amount is nonzero</small>@endif</label>
                     <select id="{{ $field }}" name="{{ $field }}" @required($key !== 'offset')>
                         <option value="">Select account</option>

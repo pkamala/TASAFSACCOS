@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\ChartPostingAccounts;
+use App\JournalPosting;
 use App\LedgerPeriods;
 use App\TablePage;
 use Illuminate\Http\RedirectResponse;
@@ -15,7 +15,7 @@ use stdClass;
 
 class MemberFundJournalController extends Controller
 {
-    public function __construct(private LedgerPeriods $periods, private ChartPostingAccounts $chart) {}
+    public function __construct(private LedgerPeriods $periods, private JournalPosting $posting) {}
 
     public function index(): View
     {
@@ -60,7 +60,7 @@ class MemberFundJournalController extends Controller
             'cash_account' => ['required', 'integer', 'min:1'],
             'member_account' => ['required', 'integer', 'min:1', 'different:cash_account'],
         ]);
-        $journal = $this->journal($record, (int) $input['cash_account'], (int) $input['member_account']);
+        $journal = $this->posting->fundJournal($record, (int) $input['cash_account'], (int) $input['member_account']);
         $request->session()->put('member_fund_journal_preview', [
             'transaction' => $transaction, 'actor' => $request->user()->id, 'token' => Str::random(40),
             'cash' => (int) $input['cash_account'], 'fund' => (int) $input['member_account'], 'journal' => $journal,
@@ -83,16 +83,14 @@ class MemberFundJournalController extends Controller
             if (! $record || DB::table('member_fund_journals')->where('member_fund_transaction_id', $transaction)->exists()) {
                 $this->invalid('Only an unposted member transaction can be posted.');
             }
-            $journal = $this->journal($record, $preview['cash'], $preview['fund']);
+            $journal = $this->posting->fundJournal($record, $preview['cash'], $preview['fund']);
             if ($journal !== $preview['journal']) {
                 $this->invalid('The transaction changed after preview. Preview the journal again.');
             }
 
             $this->periods->requireOpenDates([$journal['transaction_date']], 'journal');
 
-            DB::table('member_fund_journals')->insert([
-                ...$journal, 'member_fund_transaction_id' => $transaction, 'posted_by' => $actor, 'posted_at' => now(),
-            ]);
+            $this->posting->writeFund($transaction, $actor, $journal);
         }, 3);
 
         $request->session()->forget('member_fund_journal_preview');
@@ -109,23 +107,6 @@ class MemberFundJournalController extends Controller
         abort_if($record === null, 404);
 
         return $record;
-    }
-
-    private function journal(stdClass $record, int $cash, int $fund): array
-    {
-        if ($cash === $fund || ! $this->chart->available([$cash, $fund])) {
-            $this->invalid('Select two distinct posting accounts from the chart of accounts.');
-        }
-
-        $withdrawal = $record->kind === 'savings_withdrawal';
-
-        return [
-            'debit_account_id' => $withdrawal ? $fund : $cash,
-            'credit_account_id' => $withdrawal ? $cash : $fund,
-            'amount_minor' => abs($record->signed_minor),
-            'transaction_date' => $record->effective_on,
-            'source_reference' => $record->reference,
-        ];
     }
 
     private function invalid(string $message): never

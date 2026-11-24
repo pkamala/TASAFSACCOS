@@ -36,6 +36,7 @@ use App\Http\Controllers\MemberSavingsController;
 use App\Http\Controllers\MembershipControlsController;
 use App\Http\Controllers\MonthlyStatementDraftController;
 use App\Http\Controllers\MonthlyStatementReviewController;
+use App\Http\Controllers\PayrollJournalController;
 use App\Http\Controllers\StaffPasswordSetupController;
 use App\Http\Controllers\StaffSessionController;
 use App\Http\Controllers\VerifiedBalanceImportController;
@@ -111,6 +112,10 @@ Route::prefix('staff')->name('staff.')->middleware(['auth', 'auth.session', 'can
         ->whereIn('source', ['loan', 'member-fund', 'general'])->whereNumber('journal')->name('ledger-reversals.store');
     Route::get('/loan-ledger', [LoanLedgerReportController::class, 'index'])->name('loan-ledger.index');
     Route::get('/loan-ledger/accounts/{account}', [LoanLedgerReportController::class, 'account'])->whereNumber('account')->name('loan-ledger.account');
+    Route::get('/loan-batches/{batch}/journals', [PayrollJournalController::class, 'show'])->whereNumber('batch')->name('payroll-journals.show');
+    Route::post('/loan-batches/{batch}/journals/preview', [PayrollJournalController::class, 'preview'])->whereNumber('batch')->name('payroll-journals.preview');
+    Route::post('/loan-batches/{batch}/journals/post', [PayrollJournalController::class, 'post'])->whereNumber('batch')->name('payroll-journals.post');
+
     Route::get('/loan-journal', [LoanJournalController::class, 'index'])->name('loan-journal.index');
     Route::get('/loan-journal/{batch}', [LoanJournalController::class, 'show'])->whereNumber('batch')->name('loan-journal.show');
     Route::post('/loan-journal/{batch}/preview', [LoanJournalController::class, 'preview'])->whereNumber('batch')->name('loan-journal.preview');

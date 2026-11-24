@@ -10,7 +10,12 @@
     </div>
     @if (session('status'))<p role="status">{{ session('status') }}</p>@endif
     @include('form-errors')
-    @if ($record->status === 'confirmed' && collect($items)->pluck('loan_id')->filter()->isNotEmpty())
+    @if ($record->status === 'confirmed' && $record->kind === 'repayment')
+        @can('manage-members')
+            <p class="print-hide"><a href="{{ route('staff.payroll-journals.show', $record->id) }}">Review and post payment list journals</a></p>
+        @endcan
+    @endif
+    @if ($record->status === 'confirmed' && $record->kind === 'disbursement' && collect($items)->pluck('loan_id')->filter()->isNotEmpty())
         @can('manage-members')
             <p class="print-hide"><a href="{{ route('staff.loan-journal.show', $record->id) }}">View or prepare loan journal</a></p>
         @endcan

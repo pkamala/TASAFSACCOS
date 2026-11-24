@@ -2,8 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\ChartPostingAccounts;
+use App\JournalPosting;
 use App\LedgerPeriods;
+use App\PayrollPostingAccounts;
 use App\TablePage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -15,7 +16,7 @@ use stdClass;
 
 class LoanJournalController extends Controller
 {
-    public function __construct(private LedgerPeriods $periods, private ChartPostingAccounts $chart) {}
+    public function __construct(private LedgerPeriods $periods, private JournalPosting $posting) {}
 
     public function index(): View
     {
@@ -30,7 +31,7 @@ class LoanJournalController extends Controller
         return view('staff.loan-journals.index', compact('postings'));
     }
 
-    public function show(Request $request, int $batch): View
+    public function show(Request $request, int $batch, PayrollPostingAccounts $postingAccounts): View
     {
         $record = $this->confirmedBatch($batch);
         $posting = DB::table('loan_journal_postings as posting')->where('posting.loan_batch_id', $batch)
@@ -50,7 +51,9 @@ class LoanJournalController extends Controller
             ->orderBy('entry.id')->orderByDesc('line.signed_minor')->orderBy('line.id')
             ->get(['entry.loan_application_id', 'entry.transaction_date', 'entry.source_reference', 'line.chart_account_id', 'line.signed_minor']) : collect($preview['lines'] ?? [])->map(static fn ($line): stdClass => (object) $line);
 
-        return view('staff.loan-journals.show', compact('reversalId', 'record', 'posting', 'accounts', 'offset', 'preview', 'lines'));
+        $defaults = $record->kind === 'repayment' ? $postingAccounts->defaults($accounts) : [];
+
+        return view('staff.loan-journals.show', compact('defaults', 'reversalId', 'record', 'posting', 'accounts', 'offset', 'preview', 'lines'));
     }
 
     public function preview(Request $request, int $batch): RedirectResponse
@@ -70,7 +73,7 @@ class LoanJournalController extends Controller
             'principal' => (int) $data['principal_account'],
             'offset' => isset($data['offset_account']) ? (int) $data['offset_account'] : null,
         ];
-        $lines = $this->lines($record, $accounts);
+        $lines = $this->posting->loanLines($record, $accounts);
         $request->session()->put('loan_journal_preview', [
             'batch' => $batch, 'actor' => $request->user()->id, 'token' => Str::random(40), 'accounts' => $accounts,
             'lines' => $lines, 'digest' => hash('sha256', json_encode($lines, JSON_THROW_ON_ERROR)),
@@ -93,29 +96,14 @@ class LoanJournalController extends Controller
             if (! $record || $record->status !== 'confirmed' || DB::table('loan_journal_postings')->where('loan_batch_id', $batch)->exists()) {
                 $this->invalid('Only an unposted confirmed list can be posted.');
             }
-            $lines = $this->lines($record, $preview['accounts']);
+            $lines = $this->posting->loanLines($record, $preview['accounts']);
             if (! hash_equals($preview['digest'], hash('sha256', json_encode($lines, JSON_THROW_ON_ERROR)))) {
                 $this->invalid('The transactions changed after preview. Preview the journal again.');
             }
 
             $this->periods->requireOpenDates(array_column($lines, 'transaction_date'), 'journal');
 
-            $posting = DB::table('loan_journal_postings')->insertGetId([
-                'loan_batch_id' => $batch, 'posted_by' => $actor, 'posted_at' => now(),
-            ]);
-            foreach (collect($lines)->groupBy('loan_application_id') as $loan => $journal) {
-                $first = $journal->first();
-                $entry = DB::table('loan_journal_entries')->insertGetId([
-                    'loan_journal_posting_id' => $posting, 'loan_application_id' => $loan,
-                    'source_reference' => $first->source_reference, 'transaction_date' => $first->transaction_date,
-                ]);
-
-                DB::table('loan_journal_lines')->insert($journal->map(fn ($line): array => [
-                    'loan_journal_entry_id' => $entry,
-                    'chart_account_id' => $line->chart_account_id,
-                    'signed_minor' => $line->signed_minor,
-                ])->all());
-            }
+            $this->posting->writeLoan($batch, $actor, $lines);
         }, 3);
 
         $request->session()->forget('loan_journal_preview');
@@ -129,67 +117,6 @@ class LoanJournalController extends Controller
         abort_if($record === null, 404);
 
         return $record;
-    }
-
-    private function lines(stdClass $batch, array $accounts): array
-    {
-        $selected = array_values(array_filter($accounts));
-        if (count($selected) !== count(array_unique($selected))
-            || ! $this->chart->available($selected)) {
-            $this->invalid('Select distinct posting accounts from the chart of accounts.');
-        }
-
-        $expected = collect(json_decode($batch->items, true, flags: JSON_THROW_ON_ERROR))
-            ->filter(fn (array $item): bool => isset($item['loan_id']))->keyBy('loan_id');
-        $disbursement = $batch->kind === 'disbursement';
-        $transactions = $disbursement
-            ? DB::table('loan_disbursements as transfer')->where('transfer.loan_batch_id', $batch->id)
-                ->join('loan_applications as loan', 'loan.id', '=', 'transfer.loan_application_id')
-                ->selectRaw('loan.id AS loan_id, transfer.transferred_on AS dated, transfer.transfer_reference AS reference, transfer.cash_amount_minor AS cash')
-                ->selectRaw('loan.insurance_minor + loan.processing_fee_minor + loan.other_charges_minor AS offset')
-                ->orderBy('loan.id')->get()
-            : DB::table('loan_repayment_receipts as receipt')->where('receipt.loan_batch_id', $batch->id)
-                ->join('loan_repayment_allocations as allocation', 'allocation.loan_repayment_receipt_id', '=', 'receipt.id')
-                ->groupBy('receipt.id')
-                ->selectRaw('receipt.loan_application_id AS loan_id, receipt.received_on AS dated, receipt.receipt_reference AS reference, receipt.amount_minor AS cash')
-                ->selectRaw('sum(allocation.principal_minor) AS principal, sum(allocation.interest_minor) AS offset')
-                ->orderBy('receipt.loan_application_id')->get();
-
-        if ($transactions->isEmpty() || $transactions->count() !== $expected->count()
-            || $transactions->pluck('loan_id')->duplicates()->isNotEmpty()) {
-            $this->invalid('The confirmed transactions do not match the payment list.');
-        }
-
-        $lines = [];
-        foreach ($transactions as $transaction) {
-            $cash = (int) $transaction->cash;
-            $offset = (int) $transaction->offset;
-            $principal = $disbursement ? $cash + $offset : (int) $transaction->principal;
-            if ((int) ($expected->get($transaction->loan_id)['amount'] ?? 0) !== $cash || $cash <= 0
-                || $offset < 0 || $principal < 0 || (! $disbursement && $cash !== $principal + $offset)) {
-                $this->invalid("Loan {$transaction->loan_id} has inconsistent confirmed amounts.");
-            }
-            if ($offset > 0 && $accounts['offset'] === null) {
-                $this->invalid('Select the offset account for the financed charges or collected interest.');
-            }
-
-            $movement = [
-                'cash' => $disbursement ? -$cash : $cash,
-                'principal' => $disbursement ? $principal : -$principal,
-                'offset' => -$offset,
-            ];
-            foreach (array_filter($movement) as $key => $signedMinor) {
-                $lines[] = (object) [
-                    'loan_application_id' => $transaction->loan_id,
-                    'transaction_date' => $transaction->dated,
-                    'source_reference' => $transaction->reference,
-                    'chart_account_id' => $accounts[$key],
-                    'signed_minor' => $signedMinor,
-                ];
-            }
-        }
-
-        return $lines;
     }
 
     private function invalid(string $message): never
