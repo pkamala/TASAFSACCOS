@@ -209,7 +209,13 @@ class LoanApplicationTest extends TestCase
         $this->get("$path/new")->assertRedirect('/staff/login');
         $this->actingAs($admin)->get("$path/new")->assertForbidden();
         $this->actingAs($borrower)->get('/member/account')->assertOk()->assertSee('Apply for a loan');
-        $this->get("$path/new")->assertOk()->assertSee('Submit application')->assertDontSee('Choose sponsor 1');
+        $this->get("$path/new")->assertOk()->assertSee('Submit application')->assertSee('Choose sponsor 1')->assertSee('Choose sponsor 2')
+            ->assertSee('/member/loan-sponsors');
+        $this->getJson('/member/loan-sponsors?q=SPONSOR-1')->assertOk()->assertExactJson([[
+            'first_name' => 'SPONSOR-1', 'middle_name' => null, 'last_name' => 'Member', 'registration_no' => 'SPONSOR-1',
+        ]]);
+        $this->getJson('/member/loan-sponsors?q=BORROWER&member_id='.$accounts['OTHER']->member_id)
+            ->assertOk()->assertExactJson([]);
         $this->post($path, [
             'member_id' => $accounts['OTHER']->member_id, 'submission_id' => (string) Str::uuid(), 'principal' => '1000',
             'sponsors' => ['SPONSOR-1', 'SPONSOR-2'], 'pricing_revision_id' => $pricing,

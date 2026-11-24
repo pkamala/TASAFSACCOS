@@ -71,6 +71,7 @@ Route::post('/member/loan-sponsorships/{nomination}/confirm', [LoanSponsorshipCo
 Route::get('/member/account', MemberAccountController::class)->middleware(['auth', 'auth.session'])->name('member.account');
 
 Route::prefix('member')->name('member.')->middleware(['auth', 'auth.session'])->group(function (): void {
+    Route::get('/loan-sponsors', [LoanSponsorshipController::class, 'search'])->middleware('throttle:60,1')->name('loan-sponsors.search');
     Route::get('/notifications', [MemberNotificationController::class, 'index'])->name('notifications.index');
     Route::get('/notifications/count', [MemberNotificationController::class, 'count'])->name('notifications.count');
     Route::get('/loan-applications/new', [LoanApplicationController::class, 'create'])->name('loan-applications.create');

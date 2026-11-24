@@ -11,9 +11,16 @@ use Illuminate\Validation\ValidationException;
 
 class LoanSponsorshipController extends Controller
 {
-    public function search(Request $request, int $member, LoanSponsorship $sponsorship): JsonResponse
+    public function search(Request $request, LoanSponsorship $sponsorship, ?int $member = null): JsonResponse
     {
-        abort_unless(DB::table('members')->where('id', $member)->exists(), 404);
+        if ($member === null) {
+            $user = $request->user();
+            $member = $user->member_id;
+            abort_if($member === null || $user->is_staff_admin
+                || ! DB::table('members')->where('id', $member)->where('status', 'active')->exists(), 403);
+        } else {
+            abort_unless(DB::table('members')->where('id', $member)->exists(), 404);
+        }
         $data = $request->validate(['q' => ['nullable', 'string', 'max:100']]);
 
         return response()->json($sponsorship->search($member, $data['q'] ?? ''))
