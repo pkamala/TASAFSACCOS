@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -93,6 +94,45 @@ class LedgerFinancialReportsTest extends TestCase
         $this->get('/staff/assets')->assertOk()->assertSee('Office computer')->assertSee('949,999.50');
         $this->patch("/staff/assets/$record->id", [...$asset, 'depreciation' => '300000'])->assertRedirect('/staff/assets');
         $this->assertDatabaseHas('asset_register', ['id' => $record->id, 'depreciation_minor' => 30000000]);
+    }
+
+    public function test_budget_import_previews_and_applies_only_the_selected_year(): void
+    {
+        $admin = User::factory()->create(['is_staff_admin' => true]);
+        [$bank, $income, $expense] = $this->accounts();
+        $previewUrl = '/staff/budgets?year=2026&import=1';
+        $makeFile = fn (string $rows) => UploadedFile::fake()->createWithContent('budget.csv', "account_code,amount_tzs\n".$rows);
+
+        $this->actingAs(User::factory()->create())->post('/staff/budgets/import/preview', [
+            'year' => 2026, 'budget_file' => $makeFile("2,500.25\n"),
+        ])->assertForbidden();
+        $this->actingAs($admin)->get('/staff/budgets/import/template')->assertDownload('annual_budget_template.csv');
+        $this->post('/staff/budgets', ['year' => 2026, 'account' => $income, 'amount' => '100'])->assertRedirect();
+        $this->post('/staff/budgets', ['year' => 2025, 'account' => $income, 'amount' => '200'])->assertRedirect();
+
+        $this->post('/staff/budgets/import/preview', ['year' => 2026, 'budget_file' => $makeFile("1,5\n2,500.25\n")])
+            ->assertRedirect($previewUrl)->assertSessionHasErrors('budget_file');
+        $this->post('/staff/budgets/import/preview', ['year' => 2026, 'budget_file' => $makeFile("2,500.25\n2,600\n")])
+            ->assertRedirect($previewUrl)->assertSessionHasErrors('budget_file');
+        $this->assertDatabaseMissing('annual_budget_lines', ['chart_account_id' => $bank]);
+
+        $upload = fn () => ['year' => 2026, 'budget_file' => $makeFile("2,500.25\n3,300\n")];
+        $this->post('/staff/budgets/import/preview', $upload())->assertRedirect($previewUrl);
+        $this->get($previewUrl)->assertOk()->assertSee('Save imported budget')->assertSee('500.25')->assertSee('100.00');
+        $this->assertDatabaseCount('annual_budget_lines', 2);
+        $token = session('annual_budget_import.token');
+
+        $this->post('/staff/budgets', ['year' => 2026, 'account' => $income, 'amount' => '150'])->assertRedirect();
+        $this->from($previewUrl)->post('/staff/budgets/import/apply', ['token' => $token])
+            ->assertRedirect($previewUrl)->assertSessionHasErrors('budget_file');
+        $this->assertDatabaseCount('annual_budget_lines', 2);
+
+        $this->post('/staff/budgets/import/preview', $upload())->assertRedirect($previewUrl);
+        $this->post('/staff/budgets/import/apply', ['token' => session('annual_budget_import.token')])
+            ->assertRedirect('/staff/budgets?year=2026')->assertSessionMissing('annual_budget_import');
+        $this->assertDatabaseHas('annual_budget_lines', ['year' => 2026, 'chart_account_id' => $income, 'amount_minor' => 50025]);
+        $this->assertDatabaseHas('annual_budget_lines', ['year' => 2026, 'chart_account_id' => $expense, 'amount_minor' => 30000]);
+        $this->assertDatabaseHas('annual_budget_lines', ['year' => 2025, 'chart_account_id' => $income, 'amount_minor' => 20000]);
     }
 
     private function accounts(): array

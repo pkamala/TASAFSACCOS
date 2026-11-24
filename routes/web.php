@@ -7,6 +7,7 @@ use App\Http\Controllers\BankReconciliationController;
 use App\Http\Controllers\BoardRoleController;
 use App\Http\Controllers\BrandingController;
 use App\Http\Controllers\BudgetController;
+use App\Http\Controllers\BudgetImportController;
 use App\Http\Controllers\CashBookController;
 use App\Http\Controllers\ChartAccountManagementController;
 use App\Http\Controllers\ChartAccountTransferController;
@@ -115,6 +116,9 @@ Route::prefix('staff')->name('staff.')->middleware(['auth', 'auth.session', 'can
     Route::patch('/assets/{asset}', [AssetRegisterController::class, 'update'])->whereNumber('asset')->name('assets.update');
     Route::get('/budgets', [BudgetController::class, 'index'])->name('budgets.index');
     Route::post('/budgets', [BudgetController::class, 'store'])->name('budgets.store');
+    Route::get('/budgets/import/template', [BudgetImportController::class, 'template'])->name('budgets.import.template');
+    Route::post('/budgets/import/preview', [BudgetImportController::class, 'preview'])->name('budgets.import.preview');
+    Route::post('/budgets/import/apply', [BudgetImportController::class, 'apply'])->name('budgets.import.apply');
     Route::get('/ledger-opening', [LedgerOpeningJournalController::class, 'index'])->name('ledger-opening.index');
     Route::get('/ledger-opening/template', [LedgerOpeningJournalController::class, 'template'])->name('ledger-opening.template');
     Route::post('/ledger-opening/preview', [LedgerOpeningJournalController::class, 'preview'])->name('ledger-opening.preview');

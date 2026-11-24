@@ -203,3 +203,7 @@ textarea { resize: vertical; }
 .sponsor-dialog h2, .sponsor-dialog p { margin: 0; }
 .sponsor-results { display: grid; gap: .35rem; list-style: none; padding: 0; margin: 0 0 .5rem; max-height: min(16rem, 35vh); overflow-y: auto; }
 .sponsor-results button { width: 100%; text-align: left; }
+
+.budget-import-dialog { width: min(48rem, calc(100% - 2rem)); max-height: calc(100% - 2rem); color: var(--md-on-surface); }
+.budget-import-dialog::backdrop { background: #151d1a80; }
+.budget-import-preview { max-height: 17rem; overflow: auto; }

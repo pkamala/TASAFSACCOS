@@ -5,9 +5,11 @@
     <div class="page-intro">
         <a href="{{ route('staff.ledger-financial-reports') }}">Financial reports</a>
         <h1>Annual budget</h1>
+        <a class="print-hide" href="{{ route('staff.budgets.index', ['year' => $year, 'import' => 1]) }}" data-open-budget-import aria-haspopup="dialog">Import budget</a>
     </div>
     @if (session('status'))<p role="status">{{ session('status') }}</p>@endif
-    @include('form-errors')
+    @unless ($importOpen) @include('form-errors') @endunless
+    @include('staff.budget-import')
     <section class="panel print-hide">
         <form method="GET" action="{{ route('staff.budgets.index') }}" class="fields search">
             <label for="year">Budget year</label>
