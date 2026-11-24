@@ -26,7 +26,7 @@ document.querySelectorAll('[data-sponsor-picker]').forEach(picker => {
 
         try {
             const response = await fetch(url, {
-                headers: {Accept: 'application/json'},
+                headers: {Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
                 signal: controller.signal,
             });
             if (!response.ok) throw new Error('Search failed');

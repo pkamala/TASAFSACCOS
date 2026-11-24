@@ -34,7 +34,7 @@ if (taskLink) {
 
         loading = true;
         try {
-            const response = await fetch(taskLink.dataset.taskCountUrl, { headers: { Accept: 'application/json' } });
+            const response = await fetch(taskLink.dataset.taskCountUrl, { headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
             const count = response.ok ? (await response.json()).count : 0;
             badge.hidden = !(Number.isInteger(count) && count > 0);
             badge.textContent = badge.hidden ? '' : String(count);

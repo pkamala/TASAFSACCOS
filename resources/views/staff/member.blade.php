@@ -9,7 +9,6 @@
         <a href="{{ route('staff.members.next-of-kin.index', $profile->id) }}">Next of kin</a>
         <a href="{{ route('staff.loan-applications.index', $profile->id) }}">Loan applications</a>
         <a href="{{ route('staff.member-funds.index', $profile->id) }}">Savings and shares</a>
-        <a href="{{ route('staff.member-balances.index', $profile->id) }}">Verified savings and shares</a>
         <a href="{{ route('staff.member-exits.create', $profile->id) }}">Membership exit</a>
         @if ($profile->legacy_member_id)
             <a href="{{ route('staff.legacy-loans.index', $profile->id) }}">Legacy loans and repayments</a>

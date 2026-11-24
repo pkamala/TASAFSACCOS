@@ -47,9 +47,9 @@ class LoanEligibility
             $earliest === null => 'Record the joining date before applying for a loan.',
             $today->lt($earliest) => 'The member completes three months of membership on '.$earliest->toDateString().'.',
             $minimums === null => 'Set the savings and share minimums before accepting loan applications.',
-            $balance === null => 'Record verified savings and share balances for this member before applying.',
+            $balance === null => 'No opening savings and shares have been imported for this member.',
             $funds['available'] < $minimums->min_savings_minor => 'Available savings are below the required minimum.',
-            $funds['shares'] < max(self::MinimumShares, $minimums->min_shares_minor) => 'Verified shares are below the required minimum.',
+            $funds['shares'] < max(self::MinimumShares, $minimums->min_shares_minor) => 'Share balance is below the required minimum.',
             default => null,
         };
 

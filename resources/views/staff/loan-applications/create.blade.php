@@ -8,13 +8,6 @@
     </div>
     <section class="panel admin-profile">
         @include('form-errors')
-        @if ($eligibility['minimums'])
-            <p>Minimum savings: TZS {{ number_format($eligibility['minimums']->min_savings_minor / 100, 2) }} · Minimum shares: TZS {{ number_format(max($eligibility['minimums']->min_shares_minor, \App\LoanEligibility::MinimumShares) / 100, 2) }}</p>
-        @endif
-        @if ($eligibility['balance'])
-            <p>Available savings: TZS {{ number_format($eligibility['funds']['available'] / 100, 2) }} · Share value: TZS {{ number_format($eligibility['funds']['shares'] / 100, 2) }}</p>
-            <p>Remaining loan capacity including financed charges · TZS {{ number_format($eligibility['capacity'] / 100, 2) }}</p>
-        @endif
         @if ($otherActiveLoans)
             <p>Other active loans for this member: {{ $otherActiveLoans }}.</p>
         @endif
@@ -22,9 +15,7 @@
             @include('staff.loan-applications.category-picker')
             <button type="submit">Load category pricing</button>
         </form>
-        @if ($eligibility['reason'])
-            <p>{{ $eligibility['reason'] }} @can('manage-members')<a href="{{ route('staff.member-balances.index', $profile->id) }}">View verified balances</a>@endcan</p>
-        @elseif ($pricing)
+        @if ($pricing)
         <p>{{ $categories->firstWhere('id', $category)->name }} · Pricing revision {{ $pricing->id }} · {{ number_format($pricing->annual_basis_points / 100, 2) }}% annual interest · {{ $pricing->interest_method === 'flat' ? 'Flat rate' : 'Reducing balance' }}.</p>
         <p>Insurance {{ number_format($pricing->insurance_basis_points / 100, 2) }}% of principal · Processing fee {{ number_format($pricing->processing_fee_minor / 100, 2) }} TZS · Other charges {{ number_format($pricing->other_charges_minor / 100, 2) }} TZS.</p>
         <form class="fields" method="POST" action="{{ route('staff.loan-applications.store', $profile->id) }}">

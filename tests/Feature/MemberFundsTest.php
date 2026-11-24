@@ -24,14 +24,15 @@ class MemberFundsTest extends TestCase
         $reviewer = User::factory()->create(['board_role' => 'secretary']);
         $admin = User::factory()->create(['is_staff_admin' => true]);
         $path = "/staff/members/$member/funds";
-        $openingPath = "/staff/members/$member/verified-balances";
         $deposit = ['kind' => 'savings_deposit', 'amount' => '25000.25', 'reference' => 'receipt-s1', 'effective_on' => '2026-11-22'];
 
         $this->actingAs($owner)->post($path, $deposit)->assertForbidden();
         $this->actingAs($admin)->from($path)->post($path, $deposit)->assertSessionHasErrors('funds');
-        $this->from($openingPath)->post($openingPath, [
-            'savings' => '100000', 'shares' => '490000', 'as_of' => '2026-11-21', 'evidence_reference' => 'Opening statement',
-        ])->assertRedirect($openingPath);
+        DB::table('member_verified_balances')->insert([
+            'member_id' => $member, 'savings_minor' => 10000000, 'shares_minor' => 49000000,
+            'as_of' => '2026-11-21', 'evidence_reference' => 'Opening statement',
+            'recorded_by' => $admin->id, 'recorded_at' => now(),
+        ]);
         DB::table('loan_eligibility_revisions')->insert([
             'min_savings_minor' => 10000000, 'min_shares_minor' => 5000000, 'reason' => 'Policy',
             'changed_by' => $admin->id, 'changed_at' => now(),
@@ -43,10 +44,6 @@ class MemberFundsTest extends TestCase
         $this->assertDatabaseCount('member_fund_transactions', 2);
         $this->get($path)->assertOk()->assertSee('125,000.25')->assertSee('500,000.00')->assertSee('RECEIPT-S1');
         $this->assertNull(app(LoanEligibility::class)->details($member)['reason']);
-        $this->from($openingPath)->post($openingPath, [
-            'savings' => '200000', 'shares' => '50000', 'as_of' => '2026-11-22', 'evidence_reference' => 'Replacement statement',
-        ])->assertSessionHasErrors('evidence_reference');
-
         $this->actingAs($owner)->from('/member/account')->post('/member/savings-withdrawals', ['amount' => '200000', 'reason' => 'Cash'])
             ->assertSessionHasErrors('funds');
         $this->post('/member/savings-withdrawals', ['amount' => '30000.25', 'reason' => 'Cash'])->assertRedirect('/member/account');

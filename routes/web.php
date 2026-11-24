@@ -94,8 +94,6 @@ Route::prefix('staff')->name('staff.')->middleware(['auth', 'auth.session', 'can
     Route::get('/verified-balance-import/template', [VerifiedBalanceImportController::class, 'template'])->name('verified-balance-import.template');
     Route::post('/verified-balance-import/preview', [VerifiedBalanceImportController::class, 'preview'])->name('verified-balance-import.preview');
     Route::post('/verified-balance-import/apply', [VerifiedBalanceImportController::class, 'apply'])->name('verified-balance-import.apply');
-    Route::get('/members/{member}/verified-balances', [MembershipControlsController::class, 'balances'])->whereNumber('member')->name('member-balances.index');
-    Route::post('/members/{member}/verified-balances', [MembershipControlsController::class, 'saveBalances'])->whereNumber('member')->name('member-balances.store');
     Route::get('/members/{member}/exit', [MemberExitController::class, 'create'])->whereNumber('member')->name('member-exits.create');
     Route::post('/members/{member}/exit', [MemberExitController::class, 'store'])->whereNumber('member')->name('member-exits.store');
     Route::get('/board-roles', [BoardRoleController::class, 'index'])->name('board-roles.index');

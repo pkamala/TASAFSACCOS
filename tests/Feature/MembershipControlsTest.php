@@ -12,7 +12,7 @@ class MembershipControlsTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
-    public function test_members_need_verified_savings_and_shares_to_submit_a_loan(): void
+    public function test_submission_checks_recorded_balances_and_membership_tenure(): void
     {
         $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 11, 22));
         $member = $this->member();
@@ -36,25 +36,34 @@ class MembershipControlsTest extends TestCase
             'changed_by' => $admin->id, 'reason' => 'Test pricing', 'changed_at' => now(),
         ]);
         $path = "/staff/members/$member/loan-applications";
-        $upload = "/staff/members/$member/verified-balances";
         $payload = [
             'sponsors' => ['SPONSOR-1', 'SPONSOR-2'],
             'submission_id' => (string) Str::uuid(), 'principal' => '300000', 'pricing_revision_id' => $revision, 'loan_category_id' => DB::table('loan_categories')->where('name', 'Staff loan')->value('id'),
             'term_months' => 6, 'first_due_date' => '2026-12-31',
         ];
 
-        $this->from("$path/new")->post($path, $payload)->assertSessionHasErrors('eligibility');
-        $balance = ['as_of' => '2026-11-22', 'savings' => '100000', 'shares' => '499999.99', 'evidence_reference' => 'Statement 01'];
-        $this->from($upload)->post($upload, $balance)->assertRedirect($upload);
-        $this->get("$path/new")->assertOk()->assertSee('Verified shares are below the required minimum.');
-        $this->from("$path/new")->post($path, $payload)->assertSessionHasErrors('eligibility');
+        $this->get("$path/new")->assertOk()->assertSee('Submit application')->assertDontSee('No opening savings');
+        $this->getJson('/staff/tasks/count', ['X-Requested-With' => 'XMLHttpRequest'])->assertOk()
+            ->assertSessionHas('_previous.url', url("$path/new"));
+        $this->from("$path/new")->post($path, $payload)->assertRedirect("$path/new")->assertSessionHasErrors([
+            'eligibility' => 'No opening savings and shares have been imported for this member.',
+        ]);
+
+        $balance = [
+            'member_id' => $member, 'as_of' => '2026-11-21', 'savings_minor' => 10000000, 'shares_minor' => 49999999,
+            'evidence_reference' => 'Statement 01', 'recorded_by' => $admin->id, 'recorded_at' => now(),
+        ];
+        DB::table('member_verified_balances')->insert($balance);
+        $this->from("$path/new")->post($path, $payload)->assertSessionHasErrors([
+            'eligibility' => 'Share balance is below the required minimum.',
+        ]);
         $this->assertDatabaseEmpty('loan_applications');
 
-        $this->from($upload)->post($upload, [...$balance, 'shares' => '500000', 'evidence_reference' => 'Statement 02'])->assertRedirect($upload);
-        $this->get($upload)->assertOk()->assertSee('Statement 02')->assertSee('Statement 01');
+        DB::table('member_verified_balances')->insert([...$balance, 'shares_minor' => 50000000, 'evidence_reference' => 'Statement 02']);
         $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 11, 21));
-        $this->get("$path/new")->assertOk()->assertSee('completes three months of membership on 2026-11-22');
-        $this->post($path, $payload)->assertSessionHasErrors('eligibility');
+        $this->from("$path/new")->post($path, $payload)->assertSessionHasErrors([
+            'eligibility' => 'The member completes three months of membership on 2026-11-22.',
+        ]);
 
         $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 11, 22));
         $this->post($path, $payload)->assertRedirect();

@@ -59,7 +59,7 @@ class LoanApplicationController extends Controller
         return view('staff.loan-applications.index', compact('profile', 'applications'));
     }
 
-    public function create(Request $request, int $member, LoanEligibility $eligibility, LoanPricing $prices): View
+    public function create(Request $request, int $member, LoanPricing $prices): View
     {
         $profile = $this->member($member);
         abort_unless($profile->status === 'active', 403);
@@ -69,7 +69,7 @@ class LoanApplicationController extends Controller
         $category = (int) ($selected['category'] ?? $categories->first()->id);
 
         return view('staff.loan-applications.create', [
-            'profile' => $profile, 'submissionId' => (string) Str::uuid(), 'eligibility' => $eligibility->details($member),
+            'profile' => $profile, 'submissionId' => (string) Str::uuid(),
             'categories' => $categories, 'category' => $category,
             'otherActiveLoans' => DB::table('loan_applications')->where('member_id', $member)->where('status', 'disbursed')->count(),
             'pricing' => $prices->current($category),

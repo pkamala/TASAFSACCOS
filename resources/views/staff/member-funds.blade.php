@@ -14,7 +14,7 @@
             @include('member.fund-balances')
             <p class="note">Opening balances verified on {{ $balances['opening']->as_of }} · {{ $balances['opening']->evidence_reference }}</p>
         @else
-            <p><a href="{{ route('staff.member-balances.index', $profile->id) }}">Record verified opening balances</a> to start posting contributions.</p>
+            <p><a href="{{ route('staff.verified-balance-import.index') }}">Import opening balances</a> to start posting contributions.</p>
         @endif
     </section>
     @if ($balances['opening'] && $profile->status === 'active')
