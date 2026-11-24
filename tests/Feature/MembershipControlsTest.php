@@ -132,6 +132,7 @@ class MembershipControlsTest extends TestCase
         $role = ['loan_workflow_roles' => ['staff', 'committee'], 'role_reason' => 'Assign loan intake'];
         $this->patch("$profile/loan-role", $role)->assertForbidden();
         $this->actingAs($admin)->patch("$profile/loan-role", $role)->assertRedirect($profile);
+        $this->get($profile)->assertOk()->assertSee('None → Loan intake staff, Loan committee member');
         $assigned = $login->fresh();
         $this->assertTrue($assigned->hasLoanRole('staff'));
         $this->assertTrue($assigned->hasLoanRole('committee'));

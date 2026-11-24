@@ -100,13 +100,18 @@
         </section>
         <section class="panel">
             <h2>Profile change history</h2>
+            @php
+                $displayChange = fn ($value) => is_array($value)
+                    ? (implode(', ', array_map(fn (string $role): string => \App\LoanApproval::Roles[$role] ?? $role, $value)) ?: 'None')
+                    : ($value ?? 'Blank');
+            @endphp
             @forelse ($history as $entry)
                 <article class="history-entry">
                     <strong>{{ $entry->actor }}</strong>
                     <time datetime="{{ \Carbon\CarbonImmutable::parse($entry->recorded_at)->toIso8601String() }}">{{ \Carbon\CarbonImmutable::parse($entry->recorded_at)->setTimezone('Africa/Dar_es_Salaam')->format('d M Y H:i') }} EAT</time>
                     <ul>
                         @foreach (json_decode($entry->changes, true, flags: JSON_THROW_ON_ERROR) as $field => $change)
-                            <li>{{ ucfirst(str_replace('_', ' ', $field)) }}: {{ $change['before'] ?? 'Blank' }} → {{ $change['after'] ?? 'Blank' }}</li>
+                            <li>{{ ucfirst(str_replace('_', ' ', $field)) }}: {{ $displayChange($change['before'] ?? null) }} → {{ $displayChange($change['after'] ?? null) }}</li>
                         @endforeach
                     </ul>
                 </article>
