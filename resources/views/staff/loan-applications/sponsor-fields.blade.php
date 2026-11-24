@@ -1,16 +1,20 @@
 <div class="fields" @unless($selfService ?? false) data-sponsor-picker data-search-url="{{ route('staff.loan-sponsors.search', $profile->id, false) }}" @endunless>
-    <p>Enter the registration numbers of two active member sponsors. Each sponsor confirms through My membership.</p>
-    @for ($index = 0; $index < \App\LoanSponsorship::RequiredCount; $index++)
-        @php($number = old('sponsors.'.$index, $numbers[$index] ?? ''))
-        <label for="sponsor-{{ $index + 1 }}">Sponsor {{ $index + 1 }} registration number</label>
-        <div class="sponsor-field">
-            <input id="sponsor-{{ $index + 1 }}" name="sponsors[]" maxlength="30" value="{{ is_string($number) ? $number : '' }}" required>
-            @unless ($selfService ?? false)
-            <button type="button" aria-haspopup="dialog" data-open-sponsors hidden>Choose sponsor {{ $index + 1 }}</button>
-            @endunless
-        </div>
-        <output for="sponsor-{{ $index + 1 }}" data-sponsor-name></output>
-    @endfor
+    <p class="sponsor-help">Choose two active members. Each sponsor confirms through My membership.</p>
+    <div class="sponsor-slots">
+        @for ($index = 0; $index < \App\LoanSponsorship::RequiredCount; $index++)
+            @php($number = old('sponsors.'.$index, $numbers[$index] ?? ''))
+            <div class="sponsor-slot">
+                <label for="sponsor-{{ $index + 1 }}">Sponsor {{ $index + 1 }} registration number</label>
+                <div class="sponsor-field">
+                    <input id="sponsor-{{ $index + 1 }}" name="sponsors[]" maxlength="30" value="{{ is_string($number) ? $number : '' }}" required>
+                    @unless ($selfService ?? false)
+                        <button type="button" aria-haspopup="dialog" data-open-sponsors hidden>Choose sponsor {{ $index + 1 }}</button>
+                    @endunless
+                </div>
+                <output for="sponsor-{{ $index + 1 }}" data-sponsor-name></output>
+            </div>
+        @endfor
+    </div>
     @unless ($selfService ?? false)
     <dialog class="sponsor-dialog panel" aria-labelledby="sponsor-picker-title">
         <div class="fields">

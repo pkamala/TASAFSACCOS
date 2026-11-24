@@ -49,14 +49,20 @@
         <section class="panel stacked-panel" aria-labelledby="sponsors-heading">
             <h2 id="sponsors-heading">Loan sponsors</h2>
             @if ($sponsors->isNotEmpty())
-                <ul>
+                <ul class="sponsor-summary">
                     @foreach ($sponsors as $sponsor)
-                        <li>{{ $sponsor->first_name }} {{ $sponsor->last_name }} · {{ $sponsor->registration_no }} · {{ $sponsor->confirmed_at ? 'Confirmed' : 'Awaiting confirmation' }} @if ($sponsor->status !== 'active') · {{ ucfirst($sponsor->status) }} @endif</li>
+                        <li>
+                            <div><strong>{{ $sponsor->first_name }} {{ $sponsor->last_name }}</strong> <span>{{ $sponsor->registration_no }}</span></div>
+                            <span class="sponsor-status" @if ($sponsor->confirmed_at) data-confirmed @endif>
+                                {{ $sponsor->confirmed_at ? 'Confirmed' : 'Awaiting confirmation' }}
+                                @if ($sponsor->status !== 'active') · {{ ucfirst($sponsor->status) }} @endif
+                            </span>
+                        </li>
                     @endforeach
                 </ul>
             @endif
             @if ($mayEditSponsors)
-                <form class="fields search" method="POST" action="{{ route('staff.loan-applications.sponsors.update', [$profile->id, $record->id]) }}">
+                <form class="fields sponsor-editor" method="POST" action="{{ route('staff.loan-applications.sponsors.update', [$profile->id, $record->id]) }}">
                     @csrf
                     @method('PATCH')
                     @include('staff.loan-applications.sponsor-fields', ['numbers' => $sponsors->pluck('registration_no')->all()])
