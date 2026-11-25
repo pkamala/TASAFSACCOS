@@ -26,17 +26,17 @@
         <div data-live-table-results>
             <div class="table-wrap">
                 <table>
-                    <thead><tr><th scope="col">Registration number</th><th scope="col">Name</th><th scope="col">Status</th></tr></thead>
+                    <thead><tr><th scope="col">Registration number</th><th scope="col">Name</th><th scope="col">Status</th>@unless ($intake)<th scope="col">Membership (months)</th>@endunless</tr></thead>
                     <tbody>
                         @forelse ($members as $member)
-                            <tr><td>{{ $member->registration_no }}</td><td><a href="{{ route($intake ? 'staff.loan-applications.create' : 'staff.members.show', $member->id) }}">{{ $member->first_name }} {{ $member->last_name }}</a></td><td>{{ ucfirst($member->status) }}</td></tr>
+                            <tr><td>{{ $member->registration_no }}</td><td><a href="{{ route($intake ? 'staff.loan-applications.create' : 'staff.members.show', $member->id) }}">{{ $member->first_name }} {{ $member->last_name }}</a></td><td>{{ ucfirst($member->status) }}</td>@unless ($intake)<td>{{ $member->membership_months ?? '—' }}</td>@endunless</tr>
                         @empty
-                            <tr><td colspan="3">No members found.</td></tr>
+                            <tr><td colspan="{{ $intake ? 3 : 4 }}">No members found.</td></tr>
                         @endforelse
                     </tbody>
                 </table>
             </div>
-            @include('staff.pagination', ['page' => $members])
+            @include('staff.pagination', ['page' => $members, 'searchable' => false])
         </div>
         @endfragment
     </section>

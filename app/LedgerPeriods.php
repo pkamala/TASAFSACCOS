@@ -43,9 +43,11 @@ class LedgerPeriods
             ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('loan_journal_postings as posting')
                 ->whereColumn('posting.loan_batch_id', 'transfer.loan_batch_id'))->count();
         $loanRepayments = DB::table('loan_repayment_receipts as receipt')->whereBetween('receipt.received_on', [$from, $to])
+            ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('member_exits as exit')
+                ->whereColumn('exit.settlement_batch_id', 'receipt.loan_batch_id')->whereNotNull('exit.settlement_journal_id'))
             ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('loan_journal_postings as posting')
                 ->whereColumn('posting.loan_batch_id', 'receipt.loan_batch_id'))->count();
-        $funds = DB::table('member_fund_transactions as transaction')->whereBetween('transaction.effective_on', [$from, $to])
+        $funds = DB::table('member_fund_transactions as transaction')->whereBetween('transaction.effective_on', [$from, $to])->whereNotIn('transaction.kind', ['savings_loan_payment', 'exit_savings', 'exit_shares'])
             ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('member_fund_journals as journal')
                 ->whereColumn('journal.member_fund_transaction_id', 'transaction.id'))->count();
 

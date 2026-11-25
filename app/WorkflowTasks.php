@@ -38,6 +38,7 @@ class WorkflowTasks
             'payroll-confirmation' => ['Review actual payroll deductions', 'staff.payroll-deductions.show', [$task->reference]],
             'disbursement-confirmation' => ['Confirm disbursement list', 'staff.loan-batches.show', [$task->reference]],
             'payroll-journal' => ['Post payroll journals', 'staff.payroll-journals.show', [$task->reference]],
+            'savings-payment-journal' => ['Post savings repayment journal', 'staff.loan-journal.show', [$task->reference]],
             'disbursement-journal' => ['Post disbursement journal', 'staff.loan-journal.show', [$task->reference]],
             'withdrawal-review' => ['Review savings withdrawal', 'staff.savings-withdrawals.show', [$task->reference]],
             'withdrawal-pay' => ['Record approved withdrawal payment', 'staff.savings-withdrawals.show', [$task->reference]],
@@ -117,6 +118,9 @@ class WorkflowTasks
                 ->whereExists(fn (Builder $query) => $query->selectRaw('1')->from('loan_disbursements as transfer')->whereColumn('transfer.loan_batch_id', 'batch.id'))
                 ->whereNotExists(fn (Builder $query) => $query->selectRaw('1')->from('loan_journal_postings as posting')->whereColumn('posting.loan_batch_id', 'batch.id'))
                 ->selectRaw("'disbursement-journal' AS type, batch.id::text AS reference, null::bigint AS member_id, batch.confirmed_at AS since"),
+            (clone $confirmed)->where('batch.kind', 'savings_payment')
+                ->whereNotExists(fn (Builder $query) => $query->selectRaw('1')->from('loan_journal_postings as posting')->whereColumn('posting.loan_batch_id', 'batch.id'))
+                ->selectRaw("'savings-payment-journal' AS type, batch.id::text AS reference, null::bigint AS member_id, batch.confirmed_at AS since"),
             $confirmed->where('batch.kind', 'repayment')->where(function (Builder $query): void {
                 $query->where(fn (Builder $loan) => $loan
                     ->whereExists(fn (Builder $receipt) => $receipt->selectRaw('1')->from('loan_repayment_receipts as receipt')->whereColumn('receipt.loan_batch_id', 'batch.id'))

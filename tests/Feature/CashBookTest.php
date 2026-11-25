@@ -94,6 +94,7 @@ class CashBookTest extends TestCase
         $this->assertDatabaseCount('general_journals', 1);
         $this->assertDatabaseHas('general_journals', ['id' => $journal->id, 'transaction_date' => '2026-10-15', 'source_reference' => 'OCT-VOUCHER-42']);
         $this->get("/staff/general-journals/$journal->id?cash_book=1")->assertOk()->assertSee('View cash book for this date');
+        $this->get("/staff/general-journals/$journal->id/voucher")->assertOk()->assertSee('Expense voucher')->assertSee('OCT-VOUCHER-42');
         $this->get('/staff/cash-book?from=2026-10-15&to=2026-10-15')->assertOk()->assertViewHas('totals', [
             'opening_minor' => 0, 'cutover_minor' => 0, 'receipts_minor' => 0,
             'payments_minor' => 12050, 'closing_minor' => -12050,

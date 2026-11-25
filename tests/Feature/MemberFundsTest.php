@@ -43,6 +43,13 @@ class MemberFundsTest extends TestCase
         $this->post($path, [...$deposit, 'kind' => 'share_purchase', 'amount' => '10000'])->assertRedirect($path);
         $this->assertDatabaseCount('member_fund_transactions', 2);
         $this->get($path)->assertOk()->assertSee('125,000.25')->assertSee('500,000.00')->assertSee('RECEIPT-S1');
+        $separateDeposit = [...$deposit, 'kind' => 'member_deposit', 'amount' => '2000000', 'reference' => 'deposit-1'];
+        $this->post($path, $separateDeposit)->assertSessionHasNoErrors()->assertRedirect($path);
+        $this->post($path, $separateDeposit)->assertSessionHasNoErrors()->assertRedirect($path);
+        $this->assertDatabaseCount('member_fund_transactions', 3);
+        $this->get($path)->assertOk()->assertSee('Deposit balance')->assertSee('2,000,000.00')->assertSee('DEPOSIT-1');
+        $this->assertSame(200000000, app(MemberFunds::class)->balances($member)['deposits']);
+        $this->assertSame(37500075, app(LoanEligibility::class)->details($member)['capacity']);
         $this->assertNull(app(LoanEligibility::class)->details($member)['reason']);
         $this->actingAs($owner)->from('/member/account')->post('/member/savings-withdrawals', ['amount' => '200000', 'reason' => 'Cash'])
             ->assertSessionHasErrors('funds');
@@ -63,7 +70,9 @@ class MemberFundsTest extends TestCase
             'email' => 'unverified@example.com', 'status' => 'active',
         ]);
         $this->get('/staff/member-savings')->assertForbidden();
+        $this->get('/staff/member-savings?product=deposits')->assertForbidden();
         $this->actingAs($admin)->get('/staff/member-savings')->assertOk()
+            ->assertSeeInOrder(['Products', 'Savings', 'Deposits', 'Shares'])
             ->assertSeeInOrder(['Asha Mushi', 'Unverified Member', 'Awaiting verified opening balances'])->assertSee('30,000.25')
             ->assertViewHas('rows', fn ($rows): bool => $rows->contains(
                 fn ($row): bool => $row->id === $member && (int) $row->savings === $reserved['savings']
@@ -71,6 +80,10 @@ class MemberFundsTest extends TestCase
             ));
         $this->get('/staff/member-savings?q=Asha%20Mushi', ['X-Requested-With' => 'XMLHttpRequest'])->assertOk()
             ->assertSee('95,000.00')->assertSee($path)->assertDontSee('UNKNOWN-1')->assertDontSee('<!doctype html>', false);
+        $this->get('/staff/member-savings?product=deposits&q=10415', ['X-Requested-With' => 'XMLHttpRequest'])->assertOk()
+            ->assertSee('Deposits (TZS)')->assertSee('2,000,000.00')->assertDontSee('Reserved (TZS)')->assertDontSee('UNKNOWN-1');
+        $this->get('/staff/member-savings?product=shares&q=10415')->assertOk()
+            ->assertSee('Shares (TZS)')->assertSee('500,000.00')->assertSee($path)->assertDontSee('UNKNOWN-1');
         $this->actingAs($reviewer);
 
         $this->assertSame('Available savings are below the required minimum.', app(LoanEligibility::class)->details($member)['reason']);
@@ -88,5 +101,31 @@ class MemberFundsTest extends TestCase
         $balance = app(MemberFunds::class)->balances($member);
         $this->assertSame(9500000, $balance['savings']);
         $this->assertSame(0, $balance['reserved']);
+
+        $this->post('/member/savings-withdrawals', ['amount' => '100', 'reason' => 'Cash'])
+            ->assertSessionHasNoErrors()->assertRedirect('/member/account');
+        $earlyWithdrawal = DB::table('member_savings_withdrawals')->where('status', 'requested')->sole();
+        $earlyUrl = "/staff/savings-withdrawals/$earlyWithdrawal->id";
+        $this->actingAs($reviewer)->get($earlyUrl)->assertOk()
+            ->assertSee('within 12 months')->assertDontSee('exceeds 25%');
+        $this->from($earlyUrl)->post("$earlyUrl/review", $review)->assertSessionHasErrors('board_decision_reference');
+        $this->post("$earlyUrl/review", [...$review, 'decision' => 'declined'])->assertSessionHasNoErrors()->assertRedirect($earlyUrl);
+
+        $this->travelTo(now('Africa/Dar_es_Salaam')->addYear());
+        $this->actingAs($owner)->post('/member/savings-withdrawals', ['amount' => '23750.01', 'reason' => 'Cash'])
+            ->assertSessionHasNoErrors()->assertRedirect('/member/account');
+        $largeWithdrawal = DB::table('member_savings_withdrawals')->where('status', 'requested')->sole();
+        $largeUrl = "/staff/savings-withdrawals/$largeWithdrawal->id";
+        $this->actingAs($admin)->post($path, [...$deposit, 'reference' => 'later-savings', 'effective_on' => '2027-11-22'])
+            ->assertSessionHasNoErrors()->assertRedirect();
+        $this->actingAs($reviewer)->get($largeUrl)->assertOk()
+            ->assertSee('exceeds 25%')->assertDontSee('within 12 months');
+        $this->from($largeUrl)->post("$largeUrl/review", $review)->assertSessionHasErrors('board_decision_reference');
+        $this->post("$largeUrl/review", [...$review, 'board_decision_reference' => 'BOARD-2027-12'])
+            ->assertSessionHasNoErrors()->assertRedirect($largeUrl);
+        $this->assertDatabaseHas('member_savings_withdrawals', [
+            'id' => $largeWithdrawal->id, 'status' => 'approved', 'board_decision_reference' => 'BOARD-2027-12',
+            'savings_at_request_minor' => 9500000, 'last_paid_withdrawal_on' => '2026-11-22',
+        ]);
     }
 }

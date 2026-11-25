@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\LoanApproval;
 use App\Models\User;
 use App\TablePage;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -24,7 +25,7 @@ class MemberProfileController extends Controller
         $intake = $request->routeIs('staff.loan-intake');
         $status = $intake ? 'active' : ($input['status'] ?? '');
         $members = DB::table('members')
-            ->select(['id', 'registration_no', 'first_name', 'last_name', 'status'])
+            ->select(['id', 'registration_no', 'first_name', 'last_name', 'status', 'joining_date'])
             ->when($status !== '', fn ($query) => $query->where('status', $status))
             ->when($search !== '', function ($query) use ($search): void {
                 $term = '%'.addcslashes($search, '%_\\').'%';
@@ -35,7 +36,19 @@ class MemberProfileController extends Controller
                 });
             })
             ->orderByRaw('lower(first_name), lower(last_name)')->orderBy('id')
-            ->simplePaginate(TablePage::size())->appends(['q' => $search, 'status' => $status]);
+            ->paginate(TablePage::size())->appends(['q' => $search, 'status' => $status]);
+
+        if (! $intake) {
+            $today = CarbonImmutable::today('Africa/Dar_es_Salaam');
+            foreach ($members as $member) {
+                $member->membership_months = null;
+                if ($member->joining_date !== null) {
+                    $joiningDate = CarbonImmutable::parse($member->joining_date, $today->timezone);
+                    $months = ($today->year - $joiningDate->year) * 12 + $today->month - $joiningDate->month;
+                    $member->membership_months = max(0, $months - (int) $today->lt($joiningDate->addMonthsNoOverflow($months)));
+                }
+            }
+        }
 
         $view = view('staff.members', compact('members', 'search', 'status', 'intake'));
 
@@ -90,7 +103,8 @@ class MemberProfileController extends Controller
             ->join('users', 'users.id', '=', 'member_audits.actor_id')
             ->where('member_audits.member_id', $member)->orderByDesc('member_audits.id')
             ->select('member_audits.*', 'users.name as actor')
-            ->simplePaginate(TablePage::size());
+            ->tap(TablePage::search(['member_audits.recorded_at', 'member_audits.changes', 'users.name']))
+            ->paginate(TablePage::size());
 
         $login = User::query()->where('member_id', $member)->first(['email', 'is_staff_admin', 'local_setup_pending', 'loan_workflow_roles']);
 

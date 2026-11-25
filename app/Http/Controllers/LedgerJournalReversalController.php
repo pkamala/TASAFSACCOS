@@ -26,7 +26,9 @@ class LedgerJournalReversalController extends Controller
     {
         $rows = DB::table('ledger_journal_reversals as reversal')
             ->join('users as actor', 'actor.id', '=', 'reversal.reversed_by')
-            ->orderByDesc('reversal.id')->simplePaginate(TablePage::size(), ['reversal.*', 'actor.name as actor']);
+            ->orderByDesc('reversal.id')
+            ->tap(TablePage::search(['reversal.id', 'reversal.transaction_date', 'reversal.reason', 'actor.name']))
+            ->paginate(TablePage::size(), ['reversal.*', 'actor.name as actor']);
 
         return view('staff.ledger-reversals.index', compact('rows'));
     }
@@ -36,6 +38,7 @@ class LedgerJournalReversalController extends Controller
         [$table, $column] = self::Sources[$source];
         $original = DB::table($table)->find($journal);
         abort_if($original === null, 404);
+        $this->ensureReversible($source, $journal);
         $existing = DB::table('ledger_journal_reversals')->where($column, $journal)->value('id');
         if ($existing !== null) {
             return redirect()->route('staff.ledger-reversals.show', $existing);
@@ -62,6 +65,7 @@ class LedgerJournalReversalController extends Controller
         $id = DB::transaction(function () use ($request, $table, $column, $data, $source, $journal): int {
             $original = DB::table($table)->lockForUpdate()->find($journal);
             abort_if($original === null, 404);
+            $this->ensureReversible($source, $journal);
             if (DB::table('ledger_journal_reversals')->where($column, $journal)->exists()) {
                 throw ValidationException::withMessages(['reason' => 'This journal already has a posted reversal.']);
             }
@@ -112,6 +116,12 @@ class LedgerJournalReversalController extends Controller
         ]);
     }
 
+    private function ensureReversible(string $source, int $journal): void
+    {
+        abort_if($source === 'general' && DB::table('member_exits')->where('settlement_journal_id', $journal)->exists(),
+            409, 'An exit settlement requires a correction to both the ledger and the member balances.');
+    }
+
     private function opposite(string $source, stdClass $original): Collection
     {
         if ($source === 'loan') {
@@ -136,10 +146,15 @@ class LedgerJournalReversalController extends Controller
             'source_reference' => $original->source_reference,
         ];
 
-        return collect([
-            (object) [...$line, 'chart_account_id' => $original->credit_account_id, 'signed_minor' => $original->amount_minor],
-            (object) [...$line, 'chart_account_id' => $original->debit_account_id, 'signed_minor' => -$original->amount_minor],
-        ]);
+        $lines = [$original->credit_account_id => $original->amount_minor - $original->withholding_minor];
+        if ($original->withholding_account_id !== null) {
+            $lines[$original->withholding_account_id] = $original->withholding_minor;
+        }
+        $lines[$original->debit_account_id] = -$original->amount_minor;
+
+        return collect($lines)->filter()->map(fn (int $amount, int $account): stdClass => (object) [
+            ...$line, 'chart_account_id' => $account, 'signed_minor' => $amount,
+        ])->values();
     }
 
     private function accounts(Collection $lines): Collection

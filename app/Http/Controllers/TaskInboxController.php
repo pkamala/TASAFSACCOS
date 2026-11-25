@@ -14,7 +14,8 @@ class TaskInboxController extends Controller
     public function index(Request $request, WorkflowTasks $workflow): View
     {
         $tasks = $workflow->forUser($request->user())->orderByRaw('since NULLS LAST')->orderBy('type')->orderBy('reference')
-            ->simplePaginate(TablePage::size())->withQueryString();
+            ->tap(TablePage::search(['type', 'reference', 'since']))
+            ->paginate(TablePage::size())->withQueryString();
         $members = DB::table('members')->whereIntegerInRaw('id', $tasks->getCollection()->pluck('member_id')->filter()->unique()->all())
             ->pluck('registration_no', 'id');
         $tasks->through(fn ($task): array => [

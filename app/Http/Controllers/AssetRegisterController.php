@@ -15,7 +15,9 @@ class AssetRegisterController extends Controller
         $data = $request->validate(['edit' => ['nullable', 'integer', 'min:1']]);
         $item = isset($data['edit']) ? DB::table('asset_register')->find($data['edit']) : null;
         abort_if(isset($data['edit']) && $item === null, 404);
-        $assets = DB::table('asset_register')->orderBy('id')->simplePaginate(TablePage::size());
+        $assets = DB::table('asset_register')->orderBy('id')
+            ->tap(TablePage::search(['id', 'item']))
+            ->paginate(TablePage::size());
 
         return view('staff.asset-register', compact('assets', 'item'));
     }

@@ -31,7 +31,7 @@ class PayrollDeductions
                 foreach ($allocation as $kind => $amount) {
                     if ($amount > 0) {
                         $rows["loan:{$item['loan_id']}:$number:$kind"] = [
-                            'member_id' => $item['member_id'],
+                            'member_id' => $item['member_id'], 'loan_id' => $item['loan_id'],
                             'label' => "Loan {$item['loan_id']} · installment $number · $kind", 'planned' => $amount,
                         ];
                     }

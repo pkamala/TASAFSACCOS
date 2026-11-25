@@ -8,6 +8,7 @@ use App\LoanEvidence;
 use App\LoanPricing;
 use App\LoanSchedule;
 use App\LoanSponsorship;
+use App\LoanTopUp;
 use App\Models\User;
 use App\TablePage;
 use Illuminate\Http\RedirectResponse;
@@ -49,7 +50,9 @@ class LoanApplicationController extends Controller
                 $query->where('application.created_by', $actor->id);
             }
         }
-        $applications = $query->orderByRaw('lower(member.first_name), lower(member.last_name)')->orderBy('application.id')->simplePaginate(TablePage::size());
+        $applications = $query->orderByRaw('lower(member.first_name), lower(member.last_name)')->orderBy('application.id')
+            ->tap(TablePage::search(['application.id', 'application.approval_lane', 'category.name', 'member.registration_no', 'member.first_name', 'member.last_name', 'creator.name']))
+            ->paginate(TablePage::size());
 
         return view('staff.loan-applications.queue', compact('applications'));
     }
@@ -59,7 +62,9 @@ class LoanApplicationController extends Controller
         $profile = $this->member($member);
         $applications = DB::table('loan_applications as application')->where('application.member_id', $member)
             ->leftJoin('loan_categories as category', 'category.id', '=', 'application.loan_category_id')
-            ->orderByDesc('application.id')->simplePaginate(TablePage::size(), ['application.*', 'category.name as category_name']);
+            ->orderByDesc('application.id')
+            ->tap(TablePage::search(['application.id', 'application.status', 'application.created_at', 'category.name']))
+            ->paginate(TablePage::size(), ['application.*', 'category.name as category_name']);
 
         return view('staff.loan-applications.index', compact('profile', 'applications'));
     }
@@ -80,10 +85,12 @@ class LoanApplicationController extends Controller
             'categories' => $categories, 'category' => $category,
             'otherActiveLoans' => DB::table('loan_applications')->where('member_id', $member)->where('status', 'disbursed')->count(),
             'pricing' => $prices->current($category),
+            'topUpLoans' => DB::table('loan_applications')->where('member_id', $member)
+                ->where('loan_category_id', $category)->where('status', 'disbursed')->orderBy('id')->pluck('id'),
         ]);
     }
 
-    public function store(Request $request, LoanSchedule $calculator, LoanEligibility $eligibility, LoanPricing $prices, LoanApproval $approval, LoanSponsorship $sponsorship, ?int $member = null): RedirectResponse
+    public function store(Request $request, LoanSchedule $calculator, LoanEligibility $eligibility, LoanPricing $prices, LoanApproval $approval, LoanSponsorship $sponsorship, LoanTopUp $topUps, ?int $member = null): RedirectResponse
     {
         $selfService = $member === null;
         $member ??= $this->ownMember($request);
@@ -93,6 +100,7 @@ class LoanApplicationController extends Controller
             'principal' => ['required', 'numeric', 'decimal:0,2', 'between:100,100000000000'],
             'pricing_revision_id' => ['required', 'integer', 'min:1'],
             'loan_category_id' => ['required', 'integer', 'exists:loan_categories,id'],
+            'top_up_loan_id' => ['nullable', 'integer', 'min:1'],
             'insurance' => ['prohibited'],
             'processing_fee' => ['prohibited'],
             'other_charges' => ['prohibited'],
@@ -103,7 +111,7 @@ class LoanApplicationController extends Controller
         ]);
         $actor = $request->user()->id;
 
-        $id = DB::transaction(function () use ($data, $member, $actor, $calculator, $eligibility, $prices, $approval, $sponsorship): int {
+        $id = DB::transaction(function () use ($data, $member, $actor, $calculator, $eligibility, $prices, $approval, $sponsorship, $topUps): int {
             DB::selectOne('SELECT pg_advisory_xact_lock(hashtext(?))', ['loan-application:'.Str::lower($data['submission_id'])]);
             DB::selectOne('SELECT pg_advisory_xact_lock_shared(hashtext(?))', ['board-roles']);
             $profile = DB::table('members')->lockForUpdate()->find($member);
@@ -133,7 +141,11 @@ class LoanApplicationController extends Controller
                 'processing_fee_minor' => $pricing->processing_fee_minor,
                 'other_charges_minor' => $pricing->other_charges_minor,
             ];
-            $qualification = $eligibility->requireEligible($member, array_sum($amounts));
+            $source = isset($data['top_up_loan_id']) ? $topUps->source((int) $data['top_up_loan_id'], $member, $category) : null;
+            if ($source && $principal <= $topUps->quote($source->id, now('Africa/Dar_es_Salaam')->toDateString())['total']) {
+                throw ValidationException::withMessages(['principal' => 'The new principal must exceed the original loan payoff.']);
+            }
+            $qualification = $eligibility->requireEligible($member, array_sum($amounts), $category, replaces: $source?->id);
             $schedule = $calculator->calculate(
                 array_sum($amounts), $pricing->annual_basis_points, (int) $data['term_months'], $pricing->interest_method, $data['first_due_date'],
             );
@@ -146,6 +158,7 @@ class LoanApplicationController extends Controller
                 'annual_basis_points' => $pricing->annual_basis_points,
                 'loan_pricing_revision_id' => $pricing->id,
                 'loan_category_id' => $data['loan_category_id'],
+                'top_up_loan_id' => $source?->id,
                 'loan_eligibility_revision_id' => $qualification['minimums']->id,
                 'member_verified_balance_id' => $qualification['balance']->id,
                 'eligible_savings_minor' => $qualification['funds']['available'],
@@ -208,7 +221,9 @@ class LoanApplicationController extends Controller
             ->join('users as recorder', 'recorder.id', '=', 'receipt.recorded_by')
             ->where('loan_application_id', $application)
             ->select('receipt.*', 'recorder.name as recorder')
-            ->orderByDesc('receipt.id')->simplePaginate(TablePage::size('receipts_page'), ['*'], 'receipts_page');
+            ->orderByDesc('receipt.id')
+            ->tap(TablePage::search(['receipt.received_on', 'receipt.receipt_reference', 'recorder.name'], 'receipts_page'))
+            ->paginate(TablePage::size('receipts_page'), ['*'], 'receipts_page');
         $receiptAllocations = DB::table('loan_repayment_allocations')
             ->whereIn('loan_repayment_receipt_id', $receipts->getCollection()->pluck('id'))
             ->orderBy('installment_number')->get()->groupBy('loan_repayment_receipt_id');
@@ -265,11 +280,11 @@ class LoanApplicationController extends Controller
         return redirect()->route('staff.loan-applications.show', [$member, $application])->with('status', 'Recommendation saved and application forwarded.');
     }
 
-    public function review(Request $request, int $member, int $application, LoanEvidence $evidence, LoanEligibility $eligibility, LoanApproval $approval): RedirectResponse
+    public function review(Request $request, int $member, int $application, LoanEvidence $evidence, LoanEligibility $eligibility, LoanApproval $approval, LoanTopUp $topUps): RedirectResponse
     {
         $actor = $request->user()->id;
 
-        DB::transaction(function () use ($request, $member, $application, $actor, $evidence, $eligibility, $approval): void {
+        DB::transaction(function () use ($request, $member, $application, $actor, $evidence, $eligibility, $approval, $topUps): void {
             DB::selectOne('SELECT pg_advisory_xact_lock_shared(hashtext(?))', ['board-roles']);
             $reviewer = User::query()->findOrFail($actor);
             $profile = DB::table('members')->lockForUpdate()->find($member);
@@ -293,14 +308,25 @@ class LoanApplicationController extends Controller
             }
 
             if ($data['decision'] === 'approved') {
+                if ($record->top_up_loan_id !== null) {
+                    $source = $topUps->source($record->top_up_loan_id, $member, $record->loan_category_id);
+                    if ($record->principal_minor <= $topUps->quote($source->id, now('Africa/Dar_es_Salaam')->toDateString())['total']) {
+                        throw ValidationException::withMessages(['principal' => 'The new principal must exceed the original loan payoff.']);
+                    }
+                }
                 if ($record->loan_eligibility_revision_id !== null) {
                     $eligibility->requireEligible(
                         $member,
                         $record->principal_minor + $record->insurance_minor + $record->processing_fee_minor + $record->other_charges_minor,
+                        $record->loan_category_id,
                         $application,
+                        $record->top_up_loan_id,
                     );
-                } elseif (DB::table('member_exits')->where('member_id', $member)->whereIn('status', ['requested', 'approved'])->exists()) {
-                    throw ValidationException::withMessages(['eligibility' => 'The member has an open exit request.']);
+                } else {
+                    if (DB::table('member_exits')->where('member_id', $member)->whereIn('status', ['requested', 'approved'])->exists()) {
+                        throw ValidationException::withMessages(['eligibility' => 'The member has an open exit request.']);
+                    }
+                    $eligibility->requireAvailableCategory($member, $record->loan_category_id, $application, $record->top_up_loan_id);
                 }
             }
 
@@ -342,6 +368,36 @@ class LoanApplicationController extends Controller
         }, 3);
 
         return redirect()->route('staff.loan-applications.show', [$member, $application])->with('status', 'Undisbursed loan cancelled for the member exit.');
+    }
+
+    public function voucher(Request $request, int $member, int $application, LoanApproval $approval): View
+    {
+        $record = DB::table('loan_applications')->where('member_id', $member)->whereNull('top_up_loan_id')->find($application);
+        abort_if($record === null || ! $approval->mayView($request->user(), $record), 404);
+        $transfer = DB::table('loan_disbursements as transfer')->join('users as actor', 'actor.id', '=', 'transfer.recorded_by')
+            ->where('transfer.loan_application_id', $application)->first(['transfer.*', 'actor.name as recorder']);
+        abort_if($transfer === null, 404);
+        $profile = $this->member($member);
+        $posting = DB::table('loan_journal_postings')->where('loan_batch_id', $transfer->loan_batch_id)->first();
+        $reversed = $posting && DB::table('ledger_journal_reversals')->where('loan_journal_posting_id', $posting->id)->exists();
+
+        return view('staff.loan-applications.voucher', compact('record', 'transfer', 'profile', 'posting', 'reversed'));
+    }
+
+    public function topUpVoucher(Request $request, int $member, int $application, LoanApproval $approval): View
+    {
+        $record = DB::table('loan_applications')->where('member_id', $member)->whereNotNull('top_up_loan_id')->find($application);
+        abort_if($record === null || ! $approval->mayView($request->user(), $record), 404);
+        $transfer = DB::table('loan_disbursements')->where('loan_application_id', $application)->first();
+        abort_if($transfer === null, 404);
+        $payoff = DB::table('loan_repayment_receipts as receipt')
+            ->join('loan_repayment_allocations as allocation', 'allocation.loan_repayment_receipt_id', '=', 'receipt.id')
+            ->where('receipt.loan_batch_id', $transfer->loan_batch_id)->where('receipt.loan_application_id', $record->top_up_loan_id)
+            ->groupBy('receipt.id')->selectRaw('receipt.receipt_reference, sum(allocation.principal_minor) as principal, sum(allocation.interest_minor) as interest')->first();
+        abort_if($payoff === null, 404);
+        $profile = $this->member($member);
+
+        return view('staff.loan-applications.top-up-voucher', compact('record', 'transfer', 'payoff', 'profile'));
     }
 
     public function minutes(Request $request, int $member, int $application, LoanEvidence $evidence, LoanApproval $approval): Response

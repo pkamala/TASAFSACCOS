@@ -11,6 +11,15 @@
         <p>{{ $profile->first_name }} {{ $profile->last_name }} · {{ $profile->registration_no }} · {{ ucfirst($record->status) }} · {{ $record->category_name ?? 'Uncategorized' }}</p>
         @if ($otherActiveLoans)<p>Other active loans for this member: {{ $otherActiveLoans }}.</p>@endif
     </div>
+    @if ($disbursement && ! $record->top_up_loan_id)
+        <p><a href="{{ route('staff.loan-applications.voucher', [$record->member_id, $record->id]) }}">View loan disbursement voucher</a></p>
+    @endif
+    @if ($record->top_up_loan_id)
+        <p>Top-up of <a href="{{ route('staff.loan-applications.show', [$record->member_id, $record->top_up_loan_id]) }}">loan {{ $record->top_up_loan_id }}</a>.</p>
+        @if ($disbursement)
+            <p><a href="{{ route('staff.loan-applications.top-up-voucher', [$record->member_id, $record->id]) }}">View top-up voucher</a></p>
+        @endif
+    @endif
     @if (session('status')) <p role="status">{{ session('status') }}</p> @endif
     @include('form-errors')
     <section class="panel">
@@ -28,7 +37,7 @@
             <div><dt>Financed charges (TZS)</dt><dd>{{ number_format(($record->insurance_minor + $record->processing_fee_minor + $record->other_charges_minor) / 100, 2) }}</dd></div>
             <div><dt>Total scheduled repayment (TZS)</dt><dd>{{ number_format($installments->sum('payment_minor') / 100, 2) }}</dd></div>
         </dl>
-        <p class="note">Insurance {{ number_format($record->insurance_minor / 100, 2) }} TZS · Processing fee {{ number_format($record->processing_fee_minor / 100, 2) }} TZS · Other charges {{ number_format($record->other_charges_minor / 100, 2) }} TZS</p>
+        <p class="note">Contingency Fund {{ number_format($record->insurance_minor / 100, 2) }} TZS · Processing fee {{ number_format($record->processing_fee_minor / 100, 2) }} TZS · Other charges {{ number_format($record->other_charges_minor / 100, 2) }} TZS</p>
         <div class="table-wrap stacked-panel" tabindex="0" role="region" aria-label="Proposed repayment schedule">
             <table data-table-pages>
                 <thead><tr><th scope="col">Month</th><th scope="col">Due date</th><th scope="col" class="money">Opening balance</th><th scope="col" class="money">Principal</th><th scope="col" class="money">Interest</th><th scope="col" class="money">Payment</th><th scope="col" class="money">Closing balance</th></tr></thead>
@@ -154,6 +163,24 @@
         </section>
     @endif
     @if ($disbursement || $migration)
+        @if ($record->status === 'disbursed')
+            @can('manage-members')
+                <section class="panel stacked-panel admin-profile print-hide">
+                    <h2>Repay from savings</h2>
+                    <p>The payment goes to the oldest unpaid installment first, covering interest before principal on each installment.</p>
+                    <form class="fields" method="POST" action="{{ route('staff.loan-applications.savings-payment', [$profile->id, $record->id]) }}">
+                        @csrf
+                        <label for="savings-payment-amount">Amount (TZS)</label>
+                        <input id="savings-payment-amount" name="amount" type="number" min="0.01" step="0.01" required>
+                        <label for="savings-payment-date">Payment date</label>
+                        <input id="savings-payment-date" name="effective_on" type="date" required>
+                        <label for="savings-payment-reference">Payment reference</label>
+                        <input id="savings-payment-reference" name="reference" maxlength="70" required>
+                        <button class="primary">Record savings payment</button>
+                    </form>
+                </section>
+            @endcan
+        @endif
         @include('staff.loan-applications.repayments')
     @endif
 @endsection

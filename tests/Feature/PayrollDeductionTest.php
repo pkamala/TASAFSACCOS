@@ -43,7 +43,8 @@ class PayrollDeductionTest extends TestCase
         $this->assertDatabaseHas('loan_repayment_allocations', ['loan_application_id' => $loan, 'principal_minor' => 7000, 'interest_minor' => 0]);
         $this->assertDatabaseHas('member_fund_transactions', ['loan_batch_id' => $batch, 'kind' => 'savings_deposit', 'signed_minor' => 500]);
         $this->assertDatabaseMissing('member_fund_transactions', ['loan_batch_id' => $batch, 'kind' => 'share_purchase']);
-        $this->get($url)->assertOk()->assertSee('Confirmed payroll deductions')->assertSee('Short deductions verified');
+        $this->get($url)->assertOk()->assertSee('Confirmed payroll deductions')->assertSee('Short deductions verified')
+            ->assertSee('Planned amount (TZS)')->assertSee('Partial')->assertSee('Missed');
         $saved = DB::table('loan_batches')->find($batch);
         $this->assertSame(13000, array_sum(array_column(json_decode($saved->items, true, flags: JSON_THROW_ON_ERROR), 'amount')));
         $this->assertSame('NOV-ACTUAL', json_decode($saved->deduction_review, true, flags: JSON_THROW_ON_ERROR)['reference']);

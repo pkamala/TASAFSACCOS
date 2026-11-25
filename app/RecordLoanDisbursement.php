@@ -11,13 +11,14 @@ use Illuminate\Validation\ValidationException;
 
 class RecordLoanDisbursement
 {
-    public function __construct(private LedgerPeriods $periods) {}
+    public function __construct(private LedgerPeriods $periods, private LoanTopUp $topUps, private LoanEligibility $eligibility) {}
 
     public function record(array $input, int $actor, int $member, int $application, int $batch): void
     {
         $data = Validator::make($input, [
             'transfer_reference' => ['required', 'string', 'max:100'],
             'transferred_on' => ['required', 'date_format:Y-m-d', 'after_or_equal:1900-01-01', 'before_or_equal:'.now('Africa/Dar_es_Salaam')->toDateString()],
+            'net_transfer' => ['nullable', 'numeric', 'decimal:0,2', 'between:0.01,100000000000'],
             'transfer_note' => ['nullable', 'string', 'max:500'],
         ])->validate();
         $reference = Str::upper($data['transfer_reference']);
@@ -52,12 +53,28 @@ class RecordLoanDisbursement
                     throw ValidationException::withMessages(['transferred_on' => 'The transfer date must be on or after the approval date.']);
                 }
 
+                if ($record->loan_eligibility_revision_id !== null) {
+                    $this->eligibility->requireEligible(
+                        $member,
+                        $record->principal_minor + $record->insurance_minor + $record->processing_fee_minor + $record->other_charges_minor,
+                        $record->loan_category_id,
+                        $application,
+                        $record->top_up_loan_id,
+                    );
+                } else {
+                    $this->eligibility->requireAvailableCategory($member, $record->loan_category_id, $application, $record->top_up_loan_id);
+                }
+
                 $this->periods->requireOpenDates([$data['transferred_on']], 'transferred_on');
+
+                $cash = $record->top_up_loan_id === null
+                    ? $record->principal_minor
+                    : $this->topUps->settle($record, $actor, $batch, $data['transferred_on'], $data['net_transfer'] ?? null);
 
                 DB::table('loan_disbursements')->insert([
                     'loan_application_id' => $application,
                     'transfer_reference' => $reference,
-                    'cash_amount_minor' => $record->principal_minor,
+                    'cash_amount_minor' => $cash,
                     'transferred_on' => $data['transferred_on'],
                     'note' => $data['transfer_note'] ?? null,
                     'loan_batch_id' => $batch,

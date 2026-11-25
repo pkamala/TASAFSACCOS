@@ -29,7 +29,7 @@
                 <option value="reducing" @selected(old('interest_method', $current->interest_method ?? '') === 'reducing')>Reducing balance</option>
                 <option value="flat" @selected(old('interest_method', $current->interest_method ?? '') === 'flat')>Flat rate</option>
             </select>
-            @foreach (['annual_rate' => ['Annual interest rate (%)', 'annual_basis_points', 100], 'insurance_rate' => ['Insurance (% of requested principal)', 'insurance_basis_points', 100], 'processing_fee' => ['Processing fee (TZS)', 'processing_fee_minor', 100000000000], 'other_charges' => ['Other fixed charges (TZS)', 'other_charges_minor', 100000000000]] as $field => [$label, $column, $max])
+            @foreach (['annual_rate' => ['Annual interest rate (%)', 'annual_basis_points', 100], 'insurance_rate' => ['Contingency Fund (% of requested principal)', 'insurance_basis_points', 100], 'processing_fee' => ['Processing fee (TZS)', 'processing_fee_minor', 100000000000], 'other_charges' => ['Other fixed charges (TZS)', 'other_charges_minor', 100000000000]] as $field => [$label, $column, $max])
                 @php($value = old($field, $current ? $current->$column / 100 : ''))
                 <label for="{{ $field }}">{{ $label }}</label>
                 <input type="number" id="{{ $field }}" name="{{ $field }}" min="0" max="{{ $max }}" step="0.01" value="{{ is_scalar($value) ? $value : '' }}" required>
@@ -43,7 +43,7 @@
         <h2>Pricing history</h2>
         <div class="table-wrap" tabindex="0" role="region" aria-label="Pricing history">
             <table>
-                <thead><tr><th scope="col">Revision</th><th scope="col">Scope</th><th scope="col">Annual rate</th><th scope="col">Method</th><th scope="col">Insurance</th><th scope="col">Processing (TZS)</th><th scope="col">Other charges (TZS)</th><th scope="col">Changed by</th><th scope="col">Changed at</th><th scope="col">Reason</th></tr></thead>
+                <thead><tr><th scope="col">Revision</th><th scope="col">Scope</th><th scope="col">Annual rate</th><th scope="col">Method</th><th scope="col">Contingency Fund</th><th scope="col">Processing (TZS)</th><th scope="col">Other charges (TZS)</th><th scope="col">Changed by</th><th scope="col">Changed at</th><th scope="col">Reason</th></tr></thead>
                 <tbody>
                     @forelse ($history as $row)
                         <tr><th scope="row">{{ $row->id }}</th><td>{{ $row->loan_category_id ? 'Selected category' : 'Previous shared pricing' }}</td><td>{{ $row->annual_basis_points / 100 }}%</td><td>{{ $row->interest_method === 'flat' ? 'Flat rate' : 'Reducing balance' }}</td><td>{{ $row->insurance_basis_points / 100 }}%</td><td>{{ number_format($row->processing_fee_minor / 100, 2) }}</td><td>{{ number_format($row->other_charges_minor / 100, 2) }}</td><td>{{ $row->actor }}</td><td>{{ \Carbon\CarbonImmutable::parse($row->changed_at)->setTimezone('Africa/Dar_es_Salaam')->format('d M Y H:i') }} EAT</td><td>{{ $row->reason }}</td></tr>

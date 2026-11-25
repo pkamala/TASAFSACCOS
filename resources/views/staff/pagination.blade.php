@@ -1,9 +1,31 @@
 @php
     $page->withQueryString();
-    $sizeKey = \App\TablePage::key($page->getPageName());
-    $filters = request()->except([$page->getPageName(), $sizeKey]);
+    $pageName = $page->getPageName();
+    $sizeKey = \App\TablePage::key($pageName);
+    $searchKey = \App\TablePage::searchKey($pageName);
+    $filters = request()->except([$pageName, $sizeKey]);
 @endphp
-<div class="table-pagination print-hide">
+<div class="table-pagination print-hide" data-server-table-pagination>
+    @if ($searchable ?? true)
+        <form class="fields search print-hide" method="GET" action="{{ request()->url() }}" data-table-search-form>
+            @foreach (request()->except([$pageName, $searchKey]) as $key => $value)
+                @if (is_scalar($value))
+                    <input type="hidden" name="{{ $key }}" value="{{ $value }}">
+                @endif
+            @endforeach
+            <label>Search table
+                <input name="{{ $searchKey }}" type="search" maxlength="100" value="{{ \App\TablePage::searchTerm($pageName) }}">
+            </label>
+            <button type="submit">Search</button>
+        </form>
+    @endif
+    <span class="table-record-count">
+        @if ($page->count())
+            Showing {{ number_format($page->firstItem()) }}–{{ number_format($page->lastItem()) }} of {{ number_format($page->total()) }} {{ Str::plural('record', $page->total()) }}
+        @else
+            {{ number_format($page->total()) }} {{ Str::plural('record', $page->total()) }}
+        @endif
+    </span>
     <form method="GET" action="{{ request()->url() }}" class="page-size">
         @foreach ($filters as $key => $value)
             @if (is_scalar($value))

@@ -76,6 +76,7 @@ class LoanLifecycleTest extends TestCase
         ])->assertRedirect($bankBatch);
         $this->get("$application/minutes")->assertOk()->assertContent($minutes);
         $this->get("$bankBatch/checklist")->assertOk()->assertContent($bankChecklist);
+        $this->get("$application/voucher")->assertOk()->assertSee('Loan disbursement voucher')->assertSee('BANK-42');
         $this->assertDatabaseHas('loan_applications', ['id' => $loan, 'status' => 'disbursed']);
 
         $emergency = DB::table('loan_categories')->where('name', 'Emergency loan')->value('id');
@@ -154,6 +155,105 @@ class LoanLifecycleTest extends TestCase
         $this->get("/staff/loan-ledger/accounts/$receivable?from=2026-11-01&to=2026-12-22")
             ->assertOk()->assertSee('BANK-42')->assertSee('PAYROLL-12')->assertViewHas('closingBalance', 0);
         $this->assertDatabaseHas('loan_journal_lines', ['chart_account_id' => $interest, 'signed_minor' => -833]);
+    }
+
+    public function test_a_top_up_clears_the_original_principal_and_due_interest_and_posts_only_the_net_transfer(): void
+    {
+        $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 11, 22)->setTime(12, 0));
+        $admin = User::factory()->create(['is_staff_admin' => true]);
+        $board = User::factory()->create(['board_role' => 'chairperson']);
+        $profile = [
+            'first_name' => 'Asha', 'last_name' => 'Member', 'registration_no' => '10415',
+            'email' => 'asha@example.com', 'status' => 'active', 'joining_date' => '2025-01-01',
+        ];
+        $member = DB::table('members')->insertGetId($profile);
+        User::factory()->create(['member_id' => $member, 'loan_workflow_roles' => ['board']]);
+        $sponsors = [];
+        foreach (['SPONSOR-1', 'SPONSOR-2'] as $number) {
+            $id = DB::table('members')->insertGetId([...$profile, 'registration_no' => $number, 'email' => "$number@example.com"]);
+            $sponsors[$id] = User::factory()->create(['member_id' => $id]);
+        }
+        $category = DB::table('loan_categories')->where('name', 'Staff loan')->value('id');
+        $pricing = DB::table('loan_pricing_revisions')->insertGetId([
+            'annual_basis_points' => 1000, 'interest_method' => 'flat', 'insurance_basis_points' => 0,
+            'processing_fee_minor' => 0, 'other_charges_minor' => 0,
+            'changed_by' => $admin->id, 'reason' => 'Approved pricing', 'changed_at' => now(),
+        ]);
+        DB::table('loan_eligibility_revisions')->insert([
+            'min_savings_minor' => 1000, 'min_shares_minor' => 2000, 'changed_by' => $admin->id,
+            'reason' => 'Approved minimums', 'changed_at' => now(),
+        ]);
+        DB::table('member_verified_balances')->insert([
+            'member_id' => $member, 'as_of' => '2026-10-01', 'savings_minor' => 100000, 'shares_minor' => 50000000,
+            'evidence_reference' => 'Opening', 'recorded_by' => $admin->id, 'recorded_at' => now(),
+        ]);
+        $original = DB::table('loan_applications')->insertGetId([
+            'submission_id' => (string) Str::uuid(), 'member_id' => $member, 'created_by' => $admin->id,
+            'principal_minor' => 100000, 'insurance_minor' => 0, 'processing_fee_minor' => 0, 'other_charges_minor' => 0,
+            'annual_basis_points' => 1000, 'term_months' => 2, 'interest_method' => 'flat', 'loan_category_id' => $category,
+            'first_due_date' => '2026-11-01', 'status' => 'disbursed', 'created_at' => now(),
+        ]);
+        $originalBatch = DB::table('loan_batches')->insertGetId([
+            'kind' => 'disbursement', 'status' => 'confirmed', 'items' => '[]',
+            'prepared_by' => $admin->id, 'prepared_at' => now(),
+        ]);
+        DB::table('loan_disbursements')->insert([
+            'loan_application_id' => $original, 'loan_batch_id' => $originalBatch, 'cash_amount_minor' => 100000,
+            'transfer_reference' => 'ORIGINAL-TRANSFER', 'transferred_on' => '2026-10-01', 'recorded_by' => $admin->id, 'recorded_at' => now(),
+        ]);
+        DB::table('loan_application_installments')->insert([
+            ['loan_application_id' => $original, 'number' => 1, 'due_date' => '2026-11-01', 'opening_minor' => 100000,
+                'principal_minor' => 50000, 'interest_minor' => 1000, 'payment_minor' => 51000, 'closing_minor' => 50000],
+            ['loan_application_id' => $original, 'number' => 2, 'due_date' => '2026-12-01', 'opening_minor' => 50000,
+                'principal_minor' => 50000, 'interest_minor' => 1000, 'payment_minor' => 51000, 'closing_minor' => 0],
+        ]);
+
+        $path = "/staff/members/$member/loan-applications";
+        $payload = [
+            'sponsors' => ['SPONSOR-1', 'SPONSOR-2'], 'submission_id' => (string) Str::uuid(),
+            'pricing_revision_id' => $pricing, 'loan_category_id' => $category, 'top_up_loan_id' => $original,
+            'term_months' => 2, 'first_due_date' => '2026-12-22',
+        ];
+        $this->actingAs($admin)->get("$path/new?category=$category")->assertOk()->assertSee("Top up loan $original");
+        $this->from("$path/new")->post($path, [...$payload, 'principal' => '3000.01'])->assertSessionHasErrors('principal');
+        $this->post($path, [...$payload, 'principal' => '1500.00'])->assertRedirect();
+        $replacement = DB::table('loan_applications')->where('top_up_loan_id', $original)->sole()->id;
+        $this->confirmSponsors($replacement, $sponsors);
+        $this->actingAs($admin)->post("$path/$replacement/recommend", ['recommendation' => 'approve', 'recommendation_note' => 'Reviewed'])->assertRedirect();
+        $this->actingAs($board)->post("$path/$replacement/review", [
+            'decision' => 'approved', 'reason' => 'Top-up approved',
+            'minutes' => UploadedFile::fake()->createWithContent('minutes.pdf', "%PDF-1.4\n% Minutes\n%%EOF"),
+        ])->assertRedirect();
+        $this->actingAs($admin)->post('/staff/loan-batches', ['kind' => 'disbursement', 'loan_ids' => [$replacement]])->assertRedirect();
+        $batch = DB::table('loan_batches')->where('id', '<>', $originalBatch)->sole()->id;
+        $batchPath = "/staff/loan-batches/$batch";
+        $this->actingAs($board)->post("$batchPath/review", ['decision' => 'approved', 'review_note' => 'Transfer checked'])->assertRedirect();
+        $confirm = fn (string $net): array => [
+            'effective_date' => '2026-11-22', 'references' => [$replacement => 'TOPUP-BANK'], 'net_transfers' => [$replacement => $net],
+            'bank_checklist' => UploadedFile::fake()->createWithContent('checklist.pdf', "%PDF-1.4\n% Checklist\n%%EOF"),
+        ];
+        $this->actingAs($admin)->from($batchPath)->post("$batchPath/confirm", $confirm('500.00'))->assertSessionHasErrors('net_transfer');
+        $this->assertDatabaseEmpty('loan_repayment_receipts');
+
+        $this->post("$batchPath/confirm", $confirm('490.00'))->assertRedirect($batchPath);
+
+        $this->assertDatabaseHas('loan_applications', ['id' => $original, 'status' => 'repaid']);
+        $this->assertDatabaseHas('loan_applications', ['id' => $replacement, 'status' => 'disbursed']);
+        $this->assertDatabaseHas('loan_repayment_receipts', ['loan_application_id' => $original, 'loan_batch_id' => $batch, 'amount_minor' => 101000]);
+        $this->assertDatabaseHas('loan_repayment_allocations', ['loan_application_id' => $original, 'installment_number' => 2, 'principal_minor' => 50000, 'interest_minor' => 0]);
+        $this->assertDatabaseHas('loan_disbursements', ['loan_application_id' => $replacement, 'cash_amount_minor' => 49000]);
+        $this->get($batchPath)->assertOk()->assertSee('Total net bank transfers')->assertViewHas('netTransferTotal', 49000);
+        $this->get("$path/$replacement/top-up-voucher")->assertOk()->assertSee('Loan top-up voucher')->assertSee('490.00');
+
+        [$bank, $receivable, $interest] = $this->accounts();
+        $journal = "/staff/loan-journal/$batch";
+        $accounts = ['cash_account' => $bank, 'principal_account' => $receivable, 'top_up_interest_account' => $interest];
+        $this->post("$journal/preview", $accounts)->assertSessionHasNoErrors()->assertRedirect($journal);
+        $this->post("$journal/post", ['token' => session('loan_journal_preview.token')])->assertSessionHasNoErrors()->assertRedirect($journal);
+        DB::statement('SET CONSTRAINTS loan_journal_entry_balanced, loan_journal_lines_balanced IMMEDIATE');
+        $this->assertDatabaseHas('loan_journal_lines', ['chart_account_id' => $bank, 'signed_minor' => -49000]);
+        $this->assertDatabaseHas('loan_journal_lines', ['chart_account_id' => $receivable, 'signed_minor' => 50000]);
+        $this->assertDatabaseHas('loan_journal_lines', ['chart_account_id' => $interest, 'signed_minor' => -1000]);
     }
 
     private function accounts(): array

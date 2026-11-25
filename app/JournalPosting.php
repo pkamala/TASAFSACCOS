@@ -30,6 +30,19 @@ class JournalPosting
         }
     }
 
+    public function writeGeneral(int $actor, string $token, array $journal, array $lines): int
+    {
+        $id = DB::table('general_journals')->insertGetId([
+            ...$journal, 'preview_token' => $token, 'line_count' => count($lines),
+            'posted_by' => $actor, 'posted_at' => now(),
+        ]);
+        DB::table('general_journal_lines')->insert(array_map(
+            static fn (array $line): array => [...$line, 'general_journal_id' => $id], $lines,
+        ));
+
+        return $id;
+    }
+
     public function writeFund(int $transaction, int $actor, array $journal): void
     {
         DB::table('member_fund_journals')->insert([
@@ -48,10 +61,16 @@ class JournalPosting
         $expected = collect(PayrollDeductions::confirmedItems($batch))
             ->filter(fn (array $item): bool => isset($item['loan_id']))->keyBy('loan_id');
         $disbursement = $batch->kind === 'disbursement';
+        $payoffs = DB::table('loan_repayment_receipts as receipt')->where('receipt.loan_batch_id', $batch->id)
+            ->join('loan_repayment_allocations as allocation', 'allocation.loan_repayment_receipt_id', '=', 'receipt.id')
+            ->groupBy('receipt.loan_application_id')
+            ->selectRaw('receipt.loan_application_id, sum(allocation.principal_minor) as principal, sum(allocation.interest_minor) as interest');
         $transactions = $disbursement
             ? DB::table('loan_disbursements as transfer')->where('transfer.loan_batch_id', $batch->id)
                 ->join('loan_applications as loan', 'loan.id', '=', 'transfer.loan_application_id')
-                ->selectRaw('loan.id AS loan_id, transfer.transferred_on AS dated, transfer.transfer_reference AS reference, transfer.cash_amount_minor AS cash')
+                ->leftJoinSub($payoffs, 'payoff', 'payoff.loan_application_id', '=', 'loan.top_up_loan_id')
+                ->selectRaw('loan.id AS loan_id, loan.top_up_loan_id, transfer.transferred_on AS dated, transfer.transfer_reference AS reference, transfer.cash_amount_minor AS cash')
+                ->selectRaw('coalesce(payoff.principal, 0) AS retired_principal, coalesce(payoff.interest, 0) AS collected_interest')
                 ->selectRaw('loan.insurance_minor + loan.processing_fee_minor + loan.other_charges_minor AS offset')
                 ->orderBy('loan.id')->get()
             : DB::table('loan_repayment_receipts as receipt')->where('receipt.loan_batch_id', $batch->id)
@@ -70,8 +89,12 @@ class JournalPosting
         foreach ($transactions as $transaction) {
             $cash = (int) $transaction->cash;
             $offset = (int) $transaction->offset;
-            $principal = $disbursement ? $cash + $offset : (int) $transaction->principal;
-            if ((int) ($expected->get($transaction->loan_id)['amount'] ?? 0) !== $cash || $cash <= 0
+            $retiredPrincipal = (int) ($transaction->retired_principal ?? 0);
+            $collectedInterest = (int) ($transaction->collected_interest ?? 0);
+            $gross = $cash + $retiredPrincipal + $collectedInterest;
+            $principal = $disbursement ? $gross + $offset - $retiredPrincipal : (int) $transaction->principal;
+            if ((int) ($expected->get($transaction->loan_id)['amount'] ?? 0) !== $gross || $cash <= 0
+                || (($transaction->top_up_loan_id ?? null) !== null && $retiredPrincipal + $collectedInterest <= 0)
                 || $offset < 0 || $principal < 0 || (! $disbursement && $cash !== $principal + $offset)) {
                 $this->invalid("Loan {$transaction->loan_id} has inconsistent confirmed amounts.");
             }
@@ -79,10 +102,15 @@ class JournalPosting
                 $this->invalid('Select the offset account for the financed charges or collected interest.');
             }
 
+            if ($collectedInterest > 0 && ($accounts['top_up_interest'] ?? null) === null) {
+                $this->invalid('Select the interest income account for the original loan payoff.');
+            }
+
             $movement = [
                 'cash' => $disbursement ? -$cash : $cash,
                 'principal' => $disbursement ? $principal : -$principal,
                 'offset' => -$offset,
+                'top_up_interest' => -$collectedInterest,
             ];
             foreach (array_filter($movement) as $key => $signedMinor) {
                 $lines[] = (object) [
@@ -98,10 +126,18 @@ class JournalPosting
         return $lines;
     }
 
-    public function fundJournal(stdClass $record, int $cash, int $fund): array
+    public function fundJournal(stdClass $record, int $cash, int $fund, ?int $withholdingAccount = null): array
     {
-        if ($cash === $fund || ! $this->chart->available([$cash, $fund])) {
-            $this->invalid('Select two distinct posting accounts from the chart of accounts.');
+        $withholding = $record->withholding_minor ?? 0;
+        $accounts = [$cash, $fund];
+        if ($withholding > 0) {
+            if ($withholdingAccount === null) {
+                $this->invalid('Select the withholding payable account.');
+            }
+            $accounts[] = $withholdingAccount;
+        }
+        if (count($accounts) !== count(array_unique($accounts)) || ! $this->chart->available($accounts)) {
+            $this->invalid('Select distinct posting accounts from the chart of accounts.');
         }
 
         $withdrawal = $record->kind === 'savings_withdrawal';
@@ -110,6 +146,8 @@ class JournalPosting
             'debit_account_id' => $withdrawal ? $fund : $cash,
             'credit_account_id' => $withdrawal ? $cash : $fund,
             'amount_minor' => abs($record->signed_minor),
+            'withholding_minor' => $withholding,
+            'withholding_account_id' => $withholding > 0 ? $withholdingAccount : null,
             'transaction_date' => $record->effective_on,
             'source_reference' => $record->reference,
         ];

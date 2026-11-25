@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\ExitSettlementRates;
 use App\MemberFunds;
 use App\Models\User;
 use App\RecordMemberFundTransaction;
+use App\SavingsInterest;
 use App\TablePage;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
@@ -24,16 +26,26 @@ class MemberFundsController extends Controller
         $history = DB::table('member_fund_transactions as transaction')
             ->join('users as recorder', 'recorder.id', '=', 'transaction.recorded_by')
             ->leftJoin('member_fund_journals as journal', 'journal.member_fund_transaction_id', '=', 'transaction.id')
+            ->leftJoin('member_exits as exit', 'exit.settlement_batch_id', '=', 'transaction.loan_batch_id')
             ->where('transaction.member_id', $member)->orderByDesc('transaction.effective_on')->orderByDesc('transaction.id')
-            ->simplePaginate(TablePage::size(), ['transaction.*', 'recorder.name as actor', 'journal.id as journal_id']);
+            ->tap(TablePage::search(['transaction.effective_on', 'transaction.kind', 'transaction.reference', 'transaction.note', 'recorder.name']))
+            ->paginate(TablePage::size(), ['transaction.*', 'recorder.name as actor', 'journal.id as journal_id', 'exit.settlement_journal_id']);
+        $payroll = DB::table('member_fund_transactions as transaction')
+            ->join('loan_batches as batch', 'batch.id', '=', 'transaction.loan_batch_id')
+            ->join('member_fund_journals as journal', 'journal.member_fund_transaction_id', '=', 'transaction.id')
+            ->leftJoin('ledger_journal_reversals as reversal', 'reversal.member_fund_journal_id', '=', 'journal.id')
+            ->where('transaction.member_id', $member)->where('batch.kind', 'repayment')->whereNull('reversal.id')
+            ->selectRaw("coalesce(sum(transaction.signed_minor) FILTER (WHERE transaction.kind = 'savings_deposit'), 0) as savings,
+                coalesce(sum(transaction.signed_minor) FILTER (WHERE transaction.kind = 'share_purchase'), 0) as shares")
+            ->first();
 
-        return view('staff.member-funds', ['balances' => $funds->balances($member), ...compact('profile', 'history')]);
+        return view('staff.member-funds', ['balances' => $funds->balances($member), ...compact('profile', 'history', 'payroll')]);
     }
 
     public function deposit(Request $request, int $member, MemberFunds $funds, RecordMemberFundTransaction $transactions): RedirectResponse
     {
         $data = $request->validate([
-            'kind' => ['required', 'in:savings_deposit,share_purchase'],
+            'kind' => ['required', 'in:savings_deposit,share_purchase,member_deposit'],
             'amount' => $this->amountRules(),
             ...$this->receiptRules(),
         ]);
@@ -51,10 +63,104 @@ class MemberFundsController extends Controller
         return back()->with('status', 'Confirmed contribution recorded.');
     }
 
+    public function prepareDepositInterest(Request $request, int $member, MemberFunds $funds, RecordMemberFundTransaction $transactions): RedirectResponse
+    {
+        $data = $request->validate(['month' => ['required', 'date_format:Y-m', 'after_or_equal:1900-01']]);
+        $month = CarbonImmutable::createFromFormat('!Y-m', $data['month'], 'Africa/Dar_es_Salaam');
+        if ($month->gte(CarbonImmutable::today('Africa/Dar_es_Salaam')->startOfMonth())) {
+            throw ValidationException::withMessages(['month' => 'Choose a completed month.']);
+        }
+
+        $transaction = DB::transaction(function () use ($request, $member, $month, $funds, $transactions): int {
+            $this->lockMember($member);
+            $monthEnd = $month->endOfMonth()->toDateString();
+            $reference = 'DEPOSIT-INTEREST-'.$month->format('Y-m');
+            $credits = DB::table('member_fund_transactions')->where('member_id', $member)
+                ->where('kind', 'deposit_interest')->where('reference', $reference);
+            $existing = $credits->value('id');
+            if ($existing !== null) {
+                return $existing;
+            }
+
+            $principal = (int) DB::table('member_fund_transactions')->where('member_id', $member)
+                ->where('kind', 'member_deposit')->where('effective_on', '<=', $monthEnd)->sum('signed_minor');
+            $rate = match (true) {
+                $principal < 500_000_000 => 1,
+                $principal <= 5_000_000_000 => 2,
+                $principal <= 10_000_000_000 => 3,
+                default => 4,
+            };
+            $interest = intdiv($principal, 1200) * $rate + intdiv(($principal % 1200) * $rate + 600, 1200);
+            if ($interest === 0) {
+                $this->invalid('There is no payable deposit interest for this month.');
+            }
+
+            $balance = $funds->balances($member);
+            $this->checkOpeningDate($balance, $monthEnd);
+            $transactions->record($request->user()->id, $member, $balance['opening']->id, [
+                'reference' => $reference,
+                'effective_on' => $monthEnd,
+                'note' => sprintf('Month-end principal TZS %s at %d%% per year, divided by 12.', number_format($principal / 100, 2), $rate),
+            ], 'deposit_interest', $interest);
+
+            return $credits->soleValue('id');
+        }, 3);
+
+        return redirect()->route('staff.member-fund-journals.show', $transaction);
+    }
+
+    public function prepareSavingsInterest(Request $request, int $member, MemberFunds $funds, RecordMemberFundTransaction $transactions, ExitSettlementRates $rates): RedirectResponse
+    {
+        $data = $request->validate(['savings_month' => ['required', 'date_format:Y-m', 'after_or_equal:1900-01']]);
+        $month = CarbonImmutable::createFromFormat('!Y-m', $data['savings_month'], 'Africa/Dar_es_Salaam');
+        if ($month->gte(CarbonImmutable::today('Africa/Dar_es_Salaam')->startOfMonth())) {
+            throw ValidationException::withMessages(['savings_month' => 'Choose a completed month.']);
+        }
+
+        $transaction = DB::transaction(function () use ($request, $member, $month, $funds, $transactions, $rates): int {
+            $profile = $this->lockMember($member);
+            $monthEnd = $month->endOfMonth();
+            $reference = 'SAVINGS-INTEREST-'.$month->format('Y-m');
+            $credits = DB::table('member_fund_transactions')->where('member_id', $member)
+                ->where('kind', 'savings_interest')->where('reference', $reference);
+            $existing = $credits->value('id');
+            if ($existing !== null) {
+                return $existing;
+            }
+            if ($profile->status === 'exited' && DB::table('member_exits')->where('member_id', $member)
+                ->whereNotNull('settlement_journal_id')->exists()) {
+                $this->invalid('Savings interest was accounted for in the posted exit settlement.');
+            }
+
+            $balance = $funds->balances($member);
+            $this->checkOpeningDate($balance, $monthEnd->toDateString());
+            $opening = $balance['opening'];
+            $principal = $funds->savingsPrincipalAt($member, $opening->savings_minor, CarbonImmutable::parse($opening->as_of), $monthEnd);
+            $currentRates = $rates->current();
+            $interest = SavingsInterest::month($principal, $currentRates->savings_interest_basis_points);
+            if ($interest === 0) {
+                $this->invalid('There is no payable savings interest for this month.');
+            }
+
+            $transactions->record($request->user()->id, $member, $opening->id, [
+                'reference' => $reference,
+                'effective_on' => $monthEnd->toDateString(),
+                'note' => sprintf('Month-end savings TZS %s at %s%% per year, divided by 12. Withholding at %s%%.',
+                    number_format($principal / 100, 2), $currentRates->savings_interest_basis_points / 100, $currentRates->withholding_basis_points / 100),
+            ], 'savings_interest', $interest, withholding: SavingsInterest::withholding($interest, $currentRates->withholding_basis_points));
+
+            return $credits->soleValue('id');
+        }, 3);
+
+        return redirect()->route('staff.member-fund-journals.show', $transaction);
+    }
+
     public function withdrawals(): View
     {
         $rows = DB::table('member_savings_withdrawals as withdrawal')->join('members', 'members.id', '=', 'withdrawal.member_id')
-            ->orderByDesc('withdrawal.id')->simplePaginate(TablePage::size(), [
+            ->orderByDesc('withdrawal.id')
+            ->tap(TablePage::search(['withdrawal.id', 'withdrawal.status', 'members.registration_no', 'members.first_name', 'members.last_name']))
+            ->paginate(TablePage::size(), [
                 'withdrawal.id', 'withdrawal.amount_minor', 'withdrawal.status', 'members.registration_no', 'members.first_name', 'members.last_name',
             ]);
 
@@ -69,7 +175,7 @@ class MemberFundsController extends Controller
         $payment = DB::table('member_fund_transactions')->where('member_savings_withdrawal_id', $withdrawal)->first();
         $actors = DB::table('users')->whereIn('id', array_filter([$record->requested_by, $record->reviewed_by, $payment->recorded_by ?? null]))->pluck('name', 'id');
 
-        return view('staff.savings-withdrawals.show', ['balances' => $funds->balances($profile->id), ...compact('record', 'profile', 'payment', 'actors')]);
+        return view('staff.savings-withdrawals.show', ['balances' => $funds->balances($profile->id), 'exceptions' => $this->withdrawalExceptions($record), ...compact('record', 'profile', 'payment', 'actors')]);
     }
 
     public function requestWithdrawal(Request $request, MemberFunds $funds): RedirectResponse
@@ -92,9 +198,13 @@ class MemberFundsController extends Controller
                 $this->invalid('Resolve your open savings withdrawal before requesting another.');
             }
 
+            $lastPaidOn = DB::table('member_fund_transactions')
+                ->where('member_id', $member)->where('kind', 'savings_withdrawal')->max('effective_on');
+
             DB::table('member_savings_withdrawals')->insert([
                 'member_id' => $member, 'amount_minor' => $amount, 'status' => 'requested',
                 'requested_by' => $request->user()->id, 'requested_at' => now(), 'reason' => $data['reason'],
+                'savings_at_request_minor' => $balance['savings'], 'last_paid_withdrawal_on' => $lastPaidOn,
             ]);
         }, 3);
 
@@ -106,6 +216,7 @@ class MemberFundsController extends Controller
         $data = $request->validate([
             'decision' => ['required', 'in:approved,declined'],
             'review_note' => ['required', 'string', 'max:500'],
+            'board_decision_reference' => ['nullable', 'string', 'max:100'],
         ]);
 
         DB::transaction(function () use ($request, $funds, $withdrawal, $data): void {
@@ -117,7 +228,17 @@ class MemberFundsController extends Controller
                 $this->invalid('Only a requested withdrawal can be reviewed.');
             }
 
+            $decisionReference = null;
             if ($data['decision'] === 'approved') {
+                if ($this->withdrawalExceptions($record) !== []) {
+                    $decisionReference = $data['board_decision_reference'] ?? null;
+                    if ($decisionReference === null) {
+                        throw ValidationException::withMessages([
+                            'board_decision_reference' => 'Enter the board decision reference to approve this exception.',
+                        ]);
+                    }
+                }
+
                 $balance = $funds->balances($record->member_id);
                 if ($profile->status !== 'active' || $balance['available'] === null || $balance['available'] < $record->amount_minor) {
                     $this->invalid('The member must be active and have sufficient available savings.');
@@ -127,6 +248,7 @@ class MemberFundsController extends Controller
             DB::table('member_savings_withdrawals')->where('id', $withdrawal)->update([
                 'status' => $data['decision'], 'reviewed_by' => $officer->id,
                 'review_note' => $data['review_note'], 'reviewed_at' => now(),
+                'board_decision_reference' => $decisionReference,
             ]);
         }, 3);
 
@@ -157,6 +279,28 @@ class MemberFundsController extends Controller
         }, 3);
 
         return back()->with('status', 'Confirmed savings payout recorded.');
+    }
+
+    private function withdrawalExceptions(stdClass $record): array
+    {
+        if ($record->savings_at_request_minor === null) {
+            return ['The savings balance at the time of this request was not captured.'];
+        }
+
+        $exceptions = [];
+        if ($record->amount_minor > intdiv($record->savings_at_request_minor, 4)) {
+            $exceptions[] = 'The amount exceeds 25% of savings at the time of the request.';
+        }
+        if ($record->last_paid_withdrawal_on !== null) {
+            $requestedOn = CarbonImmutable::parse($record->requested_at)->setTimezone('Africa/Dar_es_Salaam')->toDateString();
+            $nextEligibleOn = CarbonImmutable::parse($record->last_paid_withdrawal_on, 'Africa/Dar_es_Salaam')
+                ->addMonthsNoOverflow(12)->toDateString();
+            if ($requestedOn < $nextEligibleOn) {
+                $exceptions[] = 'The request was made within 12 months of the last paid withdrawal.';
+            }
+        }
+
+        return $exceptions;
     }
 
     private function lockWithdrawal(int $id): array

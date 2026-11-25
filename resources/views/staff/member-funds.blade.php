@@ -1,10 +1,10 @@
 @extends('layout')
-@section('title', 'Member savings and shares')
+@section('title', 'Member savings, deposits and shares')
 @section('content')
     <div class="page-intro">
         <a href="{{ route('staff.members.show', $profile->id) }}">Member profile</a>
         <a href="{{ route('staff.member-savings.index') }}">All member savings</a>
-        <h1>Member savings and shares</h1>
+        <h1>Member savings, deposits and shares</h1>
         <p>{{ $profile->first_name }} {{ $profile->last_name }} · {{ $profile->registration_no }}</p>
     </div>
     @if (session('status'))<p role="status">{{ session('status') }}</p>@endif
@@ -24,7 +24,8 @@
                 @csrf
                 <label for="kind">Type</label>
                 <select id="kind" name="kind">
-                    <option value="savings_deposit" @selected(old('kind') === 'savings_deposit')>Savings deposit</option>
+                    <option value="savings_deposit" @selected(old('kind') === 'savings_deposit')>Savings</option>
+                    <option value="member_deposit" @selected(old('kind') === 'member_deposit')>Deposit</option>
                     <option value="share_purchase" @selected(old('kind') === 'share_purchase')>Share purchase</option>
                 </select>
                 <label for="amount">Amount (TZS)</label>
@@ -35,12 +36,41 @@
         </section>
     @endif
     <section class="panel stacked-panel">
+        @if ($balances['opening'] && $balances['deposits'] > 0)
+            <form method="POST" action="{{ route('staff.member-funds.deposit-interest', $profile->id) }}" class="fields search">
+                @csrf
+                <label for="deposit-interest-month">Deposit interest month</label>
+                <input id="deposit-interest-month" name="month" type="month" value="{{ old('month', now('Africa/Dar_es_Salaam')->subMonthNoOverflow()->format('Y-m')) }}" required>
+                <button class="primary">Prepare deposit interest</button>
+            </form>
+        @endif
+        @if ($balances['opening'])
+            <form method="POST" action="{{ route('staff.member-funds.savings-interest', $profile->id) }}" class="fields search">
+                @csrf
+                <label for="savings-interest-month">Savings interest month</label>
+                <input id="savings-interest-month" name="savings_month" type="month" value="{{ old('savings_month', now('Africa/Dar_es_Salaam')->subMonthNoOverflow()->format('Y-m')) }}" required>
+                <button class="primary">Prepare savings interest</button>
+                <a href="{{ route('staff.exit-settlement-rates.edit') }}">Savings interest and withholding rates</a>
+            </form>
+        @endif
         <h2>Transaction history</h2>
+        @if ($balances['opening'])
+            <div class="table-wrap" tabindex="0" role="region" aria-label="Opening balances and posted payroll contributions">
+                <table>
+                    <thead><tr><th scope="col">Source</th><th scope="col" class="money">Savings (TZS)</th><th scope="col" class="money">Shares (TZS)</th></tr></thead>
+                    <tbody>
+                        <tr><th scope="row">Verified opening balance</th><td class="money">{{ number_format($balances['opening']->savings_minor / 100, 2) }}</td><td class="money">{{ number_format($balances['opening']->shares_minor / 100, 2) }}</td></tr>
+                        <tr><th scope="row">Posted payroll contributions</th><td class="money">{{ number_format($payroll->savings / 100, 2) }}</td><td class="money">{{ number_format($payroll->shares / 100, 2) }}</td></tr>
+                        <tr><th scope="row">Current balance</th><td class="money">{{ number_format($balances['savings'] / 100, 2) }}</td><td class="money">{{ number_format($balances['shares'] / 100, 2) }}</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        @endif
         <div class="table-wrap" tabindex="0" role="region" aria-label="Member transactions"><table>
             <thead><tr><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Reference</th><th scope="col" class="money">Amount (TZS)</th><th scope="col">Recorded by</th><th scope="col">Note</th><th scope="col">Journal</th></tr></thead>
             <tbody>
                 @forelse ($history as $row)
-                    <tr><td>{{ $row->effective_on }}</td><th scope="row">{{ ucfirst(str_replace('_', ' ', $row->kind)) }}</th><td>{{ $row->reference }}</td><td class="money">{{ number_format($row->signed_minor / 100, 2) }}</td><td>{{ $row->actor }} · {{ $row->recorded_at }}</td><td>{{ $row->note ?? '—' }}</td><td><a href="{{ route('staff.member-fund-journals.show', $row->id) }}">{{ $row->journal_id ? 'View posted journal' : 'Prepare journal' }}</a></td></tr>
+                    <tr><td>{{ $row->effective_on }}</td><th scope="row">{{ ucfirst(str_replace('_', ' ', $row->kind)) }}</th><td>{{ $row->reference }}</td><td class="money">{{ number_format($row->signed_minor / 100, 2) }}</td><td>{{ $row->actor }} · {{ $row->recorded_at }}</td><td>{{ $row->note ?? '—' }}</td><td>@if ($row->settlement_journal_id)<a href="{{ route('staff.general-journals.show', $row->settlement_journal_id) }}">Exit settlement journal</a>@elseif ($row->kind === 'savings_loan_payment')<a href="{{ route('staff.loan-journal.show', $row->loan_batch_id) }}">Loan journal</a>@else<a href="{{ route('staff.member-fund-journals.show', $row->id) }}">{{ $row->journal_id ? 'View posted journal' : 'Prepare journal' }}</a>@endif</td></tr>
                 @empty
                     <tr><td colspan="7">No confirmed transactions recorded.</td></tr>
                 @endforelse

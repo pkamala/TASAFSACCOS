@@ -19,7 +19,9 @@ class BrandingController extends Controller
         $settings = $branding->current();
         $themes = SiteBranding::Themes;
         $history = DB::table('branding_revisions as revision')->join('users as actor', 'actor.id', '=', 'revision.changed_by')
-            ->orderByDesc('revision.id')->simplePaginate(TablePage::size(), ['revision.name', 'revision.mark', 'revision.theme', 'revision.logo_type', 'revision.changed_at', 'actor.name as actor']);
+            ->orderByDesc('revision.id')
+            ->tap(TablePage::search(['revision.name', 'revision.mark', 'revision.theme', 'revision.changed_at', 'actor.name']))
+            ->paginate(TablePage::size(), ['revision.name', 'revision.mark', 'revision.theme', 'revision.logo_type', 'revision.changed_at', 'actor.name as actor']);
 
         return view('staff.branding', compact('settings', 'themes', 'history'));
     }

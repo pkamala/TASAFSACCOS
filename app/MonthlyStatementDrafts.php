@@ -28,12 +28,12 @@ class MonthlyStatementDrafts
 
     public function forMonth(string $start, string $end): Collection
     {
-        $opening = DB::table('member_verified_balances')
+        $opening = DB::table('member_verified_balances')->whereNull('superseded_by_id')
             ->selectRaw('distinct on (member_id) member_id, as_of, savings_minor')
             ->orderBy('member_id')->orderByDesc('as_of')->orderByDesc('id');
         $funds = DB::table('member_fund_transactions')->where('effective_on', '<=', $end)->groupBy('member_id')
             ->select('member_id')
-            ->selectRaw("sum(signed_minor) FILTER (WHERE kind <> 'share_purchase') AS savings_movement")
+            ->selectRaw(MemberFunds::savingsMovement(historical: true).' AS savings_movement', [$end])
             ->selectRaw("sum(signed_minor) FILTER (WHERE effective_on >= ? AND kind IN ('savings_deposit', 'share_purchase')) AS contributions", [$start]);
         $principalPaid = DB::table('loan_repayment_receipts as receipt')
             ->join('loan_repayment_allocations as allocation', 'allocation.loan_repayment_receipt_id', '=', 'receipt.id')

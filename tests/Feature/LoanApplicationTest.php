@@ -176,6 +176,16 @@ class LoanApplicationTest extends TestCase
         $this->actingAs($creator)->from("$path/new")
             ->post($path, [...$payload, 'submission_id' => (string) Str::uuid(), 'principal' => '100'])
             ->assertSessionHasErrors('principal');
+
+        $emergencyCategory = DB::table('loan_categories')->where('name', 'Emergency loan')->value('id');
+        $this->post($path, [...$payload, 'submission_id' => (string) Str::uuid(), 'loan_category_id' => $emergencyCategory])
+            ->assertSessionHasNoErrors()->assertRedirect();
+        $this->assertDatabaseHas('loan_applications', ['member_id' => $member, 'loan_category_id' => $emergencyCategory]);
+
+        DB::table('member_verified_balances')->where('member_id', $member)->update(['savings_minor' => 40_000_000]);
+        $this->post($path, [...$payload, 'submission_id' => (string) Str::uuid(), 'principal' => '100'])
+            ->assertSessionHasErrors(['principal' => 'Only one active loan is allowed per category. Choose a different category or apply for a top-up.']);
+        $this->assertDatabaseCount('loan_applications', 2);
     }
 
     public function test_member_self_service_submits_for_the_signed_in_member_and_notifies_only_nominated_sponsors(): void
@@ -290,5 +300,28 @@ class LoanApplicationTest extends TestCase
         $this->post($path, ['name' => 'Education loan'])->assertRedirect($path);
         $this->assertDatabaseHas('loan_categories', ['name' => 'Education loan', 'created_by' => $admin->id]);
         $this->from($path)->post($path, ['name' => 'education loan'])->assertSessionHasErrors('name');
+    }
+
+    public function test_admins_can_rename_a_category_without_replacing_its_pricing(): void
+    {
+        $path = '/staff/loan-categories';
+        $category = DB::table('loan_categories')->where('name', 'Staff loan')->sole()->id;
+        $admin = User::factory()->create(['is_staff_admin' => true]);
+        $pricing = DB::table('loan_pricing_revisions')->insertGetId([
+            'loan_category_id' => $category, 'annual_basis_points' => 1000, 'interest_method' => 'flat',
+            'insurance_basis_points' => 0, 'processing_fee_minor' => 0, 'other_charges_minor' => 0,
+            'changed_by' => $admin->id, 'reason' => 'Approved pricing', 'changed_at' => now(),
+        ]);
+        $edit = "$path?edit=$category";
+        $this->actingAs(User::factory()->create(['board_role' => 'chairperson']))
+            ->patch("$path/$category", ['category_name' => 'Staff development loan'])->assertForbidden();
+
+        $this->actingAs($admin)->get($edit)->assertOk()->assertSee('Edit loan category')->assertSee('value="Staff loan"', false);
+        $this->followingRedirects()->from($edit)->patch("$path/$category", ['category_name' => 'emergency LOAN'])
+            ->assertOk()->assertSee('A loan category with this name already exists.');
+        $this->patch("$path/$category", ['category_name' => 'Staff development loan'])->assertRedirect($path);
+
+        $this->assertDatabaseHas('loan_categories', ['id' => $category, 'name' => 'Staff development loan']);
+        $this->assertDatabaseHas('loan_pricing_revisions', ['id' => $pricing, 'loan_category_id' => $category]);
     }
 }

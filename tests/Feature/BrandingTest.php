@@ -39,6 +39,9 @@ class BrandingTest extends TestCase
         $this->patch($path, [...$input, 'theme' => 'plum', 'remove_logo' => '1'])->assertRedirect($path);
         $this->get($logoUrl)->assertNotFound();
         $this->get('/')->assertOk()->assertSee('data-theme="plum"', false)->assertSee('>EC<', false)->assertDontSee('rel="icon"', false);
-        $this->assertDatabaseCount('branding_revisions', 3);
+        $this->get($path)->assertOk()->assertSee('Light blue');
+        $this->patch($path, [...$input, 'theme' => 'light-blue'])->assertSessionHasNoErrors()->assertRedirect($path);
+        $this->get('/')->assertOk()->assertSee('data-theme="light-blue"', false)->assertSee('class="brand-name"', false);
+        $this->assertDatabaseCount('branding_revisions', 4);
     }
 }

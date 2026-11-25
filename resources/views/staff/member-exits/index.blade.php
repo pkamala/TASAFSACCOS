@@ -2,6 +2,9 @@
 @section('title', 'Member exits')
 @section('content')
     <div class="page-intro"><h1>Member exits</h1><p>Review requests and track settlement before deactivating a membership.</p></div>
+    @can('manage-members')
+        <p><a href="{{ route('staff.exit-settlement-rates.edit') }}">Exit settlement rates</a></p>
+    @endcan
     <section class="panel">
         <div class="table-wrap"><table>
             <thead><tr><th scope="col">Exit</th><th scope="col">Member</th><th scope="col">Requested at</th><th scope="col">Status</th></tr></thead>

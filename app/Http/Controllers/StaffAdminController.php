@@ -18,7 +18,8 @@ class StaffAdminController extends Controller
     public function index(): View
     {
         $admins = User::query()->where('is_staff_admin', true)->orderBy('name')->orderBy('id')
-            ->simplePaginate(TablePage::size(), ['id', 'name', 'email']);
+            ->tap(TablePage::search(['id', 'name', 'email']))
+            ->paginate(TablePage::size(), ['id', 'name', 'email']);
 
         return view('staff.admin-accounts', compact('admins'));
     }

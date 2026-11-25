@@ -48,7 +48,12 @@
                             <td>{{ $line->category }}</td>
                             <td class="money">{{ $line->amount_minor === null ? '—' : $money($line->amount_minor) }}</td>
                             <td class="money">{{ $money($line->actual_minor) }}</td>
-                            <td class="money">{{ $line->amount_minor === null ? '—' : $money($line->actual_minor - $line->amount_minor) }}</td>
+                            <td class="money">
+                                {{ $line->amount_minor === null ? '—' : $money($line->actual_minor - $line->amount_minor) }}
+                                @if (! $line->is_income && $line->amount_minor !== null && $line->actual_minor > $line->amount_minor)
+                                    <strong class="status">Over budget</strong>
+                                @endif
+                            </td>
                         </tr>
                     @empty
                         <tr><td colspan="5">No budget lines or posted activity for {{ $year }}.</td></tr>

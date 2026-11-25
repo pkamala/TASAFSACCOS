@@ -10,6 +10,7 @@ class SiteBranding
     public const Themes = [
         'forest' => 'Forest green',
         'ocean' => 'Ocean blue',
+        'light-blue' => 'Light blue',
         'plum' => 'Plum purple',
     ];
 

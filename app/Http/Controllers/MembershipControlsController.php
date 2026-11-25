@@ -15,7 +15,9 @@ class MembershipControlsController extends Controller
     {
         $history = DB::table('loan_eligibility_revisions as revision')
             ->join('users as actor', 'actor.id', '=', 'revision.changed_by')
-            ->orderByDesc('revision.id')->simplePaginate(TablePage::size(), ['revision.*', 'actor.name as actor']);
+            ->orderByDesc('revision.id')
+            ->tap(TablePage::search(['revision.reason', 'revision.changed_at', 'actor.name']))
+            ->paginate(TablePage::size(), ['revision.*', 'actor.name as actor']);
         $current = DB::table('loan_eligibility_revisions')->orderByDesc('id')->first();
 
         return view('staff.membership-minimums', compact('history', 'current'));

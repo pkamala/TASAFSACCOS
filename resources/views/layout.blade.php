@@ -21,7 +21,7 @@
                 @else
                     <span class="brand-mark" aria-hidden="true">{{ $branding->mark }}</span>
                 @endif
-                <span>{{ $branding->name }}</span>
+                <span class="brand-name">{{ $branding->name }}</span>
             </a>
             <nav class="main-nav" aria-label="Main navigation">
                 @can('access-task-inbox')
@@ -33,6 +33,11 @@
                         <div class="nav-options">
                             @include('nav-link', ['destination' => 'staff.loan-applications.queue', 'label' => 'Loan review'])
                             @include('nav-link', ['destination' => 'staff.loan-batches.index', 'label' => 'Payment lists'])
+                            @can('manage-members')
+                                @include('nav-link', ['destination' => 'staff.agm.index', 'label' => 'AGM registration'])
+                                @include('nav-link', ['destination' => 'staff.payroll-corrections.index', 'label' => 'Payroll corrections'])
+                                @include('nav-link', ['destination' => 'staff.payroll-loan-reconciliation.index', 'label' => 'Payroll loan reconciliation'])
+                            @endcan
                             @include('nav-link', ['destination' => 'staff.member-exits.index', 'label' => 'Member exits'])
                             @include('nav-link', ['destination' => 'staff.savings-withdrawals.index', 'label' => 'Withdrawals'])
                             @include('nav-link', ['destination' => 'staff.profile.edit', 'label' => 'My profile'])
@@ -49,11 +54,20 @@
                 @endcannot
                 @can('manage-members')
                     <details class="nav-menu">
+                        <summary>Products</summary>
+                        <div class="nav-options">
+                            @foreach (['savings' => 'Savings', 'deposits' => 'Deposits', 'shares' => 'Shares'] as $fundProduct => $label)
+                                <a href="{{ route('staff.member-savings.index', ['product' => $fundProduct]) }}"
+                                    @if (request()->routeIs('staff.member-savings.index') && request()->query('product', 'savings') === $fundProduct) aria-current="page" @endif>{{ $label }}</a>
+                            @endforeach
+                            @include('nav-link', ['destination' => 'staff.loan-register', 'label' => 'Loans'])
+                        </div>
+                    </details>
+                    <details class="nav-menu">
                         <summary>Administration</summary>
                         <div class="nav-options">
                             @include('nav-link', ['destination' => 'staff.admin-accounts.index', 'label' => 'Admin accounts'])
                             @include('nav-link', ['destination' => 'staff.members.index', 'label' => 'Members'])
-                            @include('nav-link', ['destination' => 'staff.member-savings.index', 'label' => 'Member savings'])
                             @include('nav-link', ['destination' => 'staff.loan-categories.index', 'label' => 'Loan categories'])
                             @include('nav-link', ['destination' => 'staff.accounts.index', 'label' => 'Chart of accounts'])
                             @include('nav-link', ['destination' => 'staff.loan-ledger.index', 'label' => 'Ledger'])
@@ -70,6 +84,7 @@
                 @if (auth()->user()?->member_id)
                     <a href="{{ route('member.notifications.index') }}" data-task-count-url="{{ route('member.notifications.count', [], false) }}" @if (request()->routeIs('member.notifications.index')) aria-current="page" @endif>Notifications <span class="task-count" data-task-count hidden></span></a>
                     @include('nav-link', ['destination' => 'member.account', 'label' => 'My membership'])
+                    @include('nav-link', ['destination' => 'member.agm.index', 'label' => 'AGM'])
                 @endif
                 @auth
                     <form method="POST" action="{{ route('staff.logout') }}">@csrf<button class="quiet">Sign out</button></form>

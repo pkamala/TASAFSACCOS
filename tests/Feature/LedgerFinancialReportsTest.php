@@ -76,7 +76,9 @@ class LedgerFinancialReportsTest extends TestCase
         $this->post('/staff/budgets', [...$budget, 'amount' => '550'])->assertRedirect('/staff/budgets?year=2026');
         $this->assertDatabaseCount('annual_budget_lines', 1);
         $this->get('/staff/budgets?year=2026')->assertOk()
-            ->assertSee('550.00')->assertSee('300.00')->assertSee('-250.00');
+            ->assertSee('550.00')->assertSee('300.00')->assertSee('-250.00')->assertDontSee('Over budget');
+        $this->post('/staff/budgets', [...$budget, 'account' => $expenses, 'amount' => '40'])->assertRedirect('/staff/budgets?year=2026');
+        $this->get('/staff/budgets?year=2026')->assertOk()->assertSee('Over budget');
         $this->get('/staff/budgets?year=2027')->assertOk()->assertDontSee('550.00');
     }
 

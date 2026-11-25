@@ -19,20 +19,28 @@ class MemberAccountController extends Controller
 
         $member = DB::table('members')->find($id, ['first_name', 'last_name', 'registration_no', 'status', 'email', 'joining_date']);
         abort_if($member === null, 404);
+        $nextAgm = $member->status === 'active'
+            ? DB::table('agm_meetings as meeting')->whereNull('meeting.registration_closed_at')
+                ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('agm_registrations as registration')
+                    ->where('registration.member_id', $id)->whereColumn('registration.agm_meeting_id', 'meeting.id'))
+                ->orderBy('meeting.starts_at')->orderBy('meeting.id')->first(['meeting.id', 'meeting.title', 'meeting.venue', 'meeting.starts_at'])
+            : null;
 
         $loans = DB::table('loan_applications as application')->where('application.member_id', $id)
             ->leftJoin('loan_categories as category', 'category.id', '=', 'application.loan_category_id')
             ->orderByDesc('application.id')->select([
                 'application.id', 'application.status', 'application.approval_lane', 'application.principal_minor', 'application.term_months', 'application.interest_method', 'category.name as category_name',
-            ])->addSelect(['confirmed_sponsors' => $sponsorship->confirmedActiveCount('application')])->simplePaginate(TablePage::size());
+            ])->addSelect(['confirmed_sponsors' => $sponsorship->confirmedActiveCount('application')])
+            ->tap(TablePage::search(['application.id', 'application.status', 'application.approval_lane', 'category.name']))
+            ->paginate(TablePage::size());
 
         $exit = DB::table('member_exits')->where('member_id', $id)->orderByDesc('id')->first(['status', 'requested_at', 'effective_on']);
 
         $withdrawalQuery = DB::table('member_savings_withdrawals')->where('member_id', $id)->orderByDesc('id');
         $withdrawal = (clone $withdrawalQuery)->first(['status']);
-        $withdrawals = $withdrawalQuery->simplePaginate(
-            TablePage::size('withdrawals_page'), ['id', 'amount_minor', 'status', 'requested_at'], 'withdrawals_page',
-        );
+        $withdrawals = $withdrawalQuery
+            ->tap(TablePage::search(['id', 'status', 'requested_at'], 'withdrawals_page'))
+            ->paginate(TablePage::size('withdrawals_page'), ['id', 'amount_minor', 'status', 'requested_at'], 'withdrawals_page');
         $balances = $funds->balances($id);
 
         $sponsorships = DB::table('loan_sponsorships as sponsorship')
@@ -42,12 +50,14 @@ class MemberAccountController extends Controller
             ->where('loan.status', 'submitted')
             ->where(fn ($query) => $query->whereIn('loan.approval_lane', LoanApproval::PendingLanes)
                 ->orWhereNull('loan.approval_lane')->orWhereNotNull('sponsorship.confirmed_at'))
-            ->orderByDesc('sponsorship.id')->simplePaginate(TablePage::size('sponsorships_page'), [
+            ->orderByDesc('sponsorship.id')
+            ->tap(TablePage::search(['loan.id', 'borrower.registration_no', 'borrower.first_name', 'borrower.last_name'], 'sponsorships_page'))
+            ->paginate(TablePage::size('sponsorships_page'), [
                 'sponsorship.id', 'sponsorship.confirmed_at', 'loan.id as application',
                 'loan.term_months', 'borrower.first_name', 'borrower.last_name', 'borrower.registration_no',
                 DB::raw('loan.principal_minor + loan.insurance_minor + loan.processing_fee_minor + loan.other_charges_minor as financed_minor'),
             ], 'sponsorships_page')->withQueryString();
 
-        return view('member.account', compact('member', 'loans', 'exit', 'withdrawal', 'withdrawals', 'balances', 'sponsorships'));
+        return view('member.account', compact('member', 'loans', 'exit', 'withdrawal', 'withdrawals', 'balances', 'sponsorships', 'nextAgm'));
     }
 }

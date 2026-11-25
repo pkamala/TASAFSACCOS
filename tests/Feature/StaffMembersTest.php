@@ -26,12 +26,14 @@ class StaffMembersTest extends TestCase
 
     public function test_staff_can_search_and_edit_a_profile_with_an_audited_change(): void
     {
+        $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 11, 25));
         $admin = User::factory()->create(['is_staff_admin' => true]);
         $member = DB::table('members')->insertGetId([
             'registration_no' => '10415',
             'first_name' => 'Asha',
             'last_name' => 'Mushi',
             'email' => 'member@example.com',
+            'joining_date' => '2026-08-31',
             'status' => 'inactive',
         ]);
 
@@ -39,7 +41,8 @@ class StaffMembersTest extends TestCase
             ->assertRedirect('/staff/members');
         $this->get('/staff/members?q=10415')->assertOk()->assertSee('Asha Mushi');
         $this->get('/staff/members?q=10415', ['X-Requested-With' => 'XMLHttpRequest'])
-            ->assertOk()->assertSee('data-live-table-results', false)->assertSee('Asha Mushi')->assertDontSee('<!doctype html>', false);
+            ->assertOk()->assertSee('data-live-table-results', false)->assertSee('Asha Mushi')->assertSee('Membership (months)')->assertSee('<td>2</td>', false)
+            ->assertDontSee('<!doctype html>', false);
         $this->get('/staff/members?q=99999')->assertOk()->assertDontSee('Asha Mushi');
 
         $details = [
@@ -70,16 +73,25 @@ class StaffMembersTest extends TestCase
             'registration_no' => "TEST-$sequence", 'first_name' => 'Pagination', 'last_name' => 'Member',
             'email' => "page-$sequence@example.com", 'status' => 'active',
         ], range(1, 51)));
+        DB::table('members')->insert([
+            'registration_no' => 'OTHER-1', 'first_name' => 'Other', 'last_name' => 'Member',
+            'email' => 'other@example.com', 'status' => 'active',
+        ]);
         $path = '/staff/members?q=Pagination';
         $this->actingAs($admin)->get($path)->assertOk()
-            ->assertViewHas('members', fn ($page): bool => $page->count() === 10);
+            ->assertViewHas('members', fn ($page): bool => $page->count() === 10)
+            ->assertSee('Showing 1–10 of 51 records');
         foreach ([10 => 10, 25 => 25, 50 => 50, 100 => 51, 999 => 10] as $size => $count) {
             $this->get("$path&per_page=$size")->assertOk()
                 ->assertViewHas('members', fn ($page): bool => $page->count() === $count);
         }
         $this->get("$path&per_page=10&page=2")->assertOk()
             ->assertViewHas('members', fn ($page): bool => $page->currentPage() === 2 && $page->count() === 10)
+            ->assertSee('Showing 11–20 of 51 records')
             ->assertSee('name="q" value="Pagination"', false)
             ->assertSee('per_page=10&amp;page=3', false);
+        $ajax = ['X-Requested-With' => 'XMLHttpRequest'];
+        $this->get('/staff/members?q=OTHER-1', $ajax)->assertOk()->assertSee('Showing 1–1 of 1 record');
+        $this->get('/staff/members?q=UNKNOWN', $ajax)->assertOk()->assertSee('0 records');
     }
 }

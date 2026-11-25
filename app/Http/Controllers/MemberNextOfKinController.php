@@ -14,7 +14,9 @@ class MemberNextOfKinController extends Controller
     {
         $profile = DB::table('members')->find($member, ['id', 'registration_no', 'first_name', 'last_name']);
         abort_if($profile === null, 404);
-        $contacts = DB::table('member_next_of_kin')->where('member_id', $member)->orderByRaw('lower(full_name)')->orderBy('id')->simplePaginate(TablePage::size());
+        $contacts = DB::table('member_next_of_kin')->where('member_id', $member)->orderByRaw('lower(full_name)')->orderBy('id')
+            ->tap(TablePage::search(['full_name', 'relationship', 'phone', 'email']))
+            ->paginate(TablePage::size());
 
         return response()->view('staff.member-next-of-kin', compact('profile', 'contacts'), headers: ['Cache-Control' => 'private, no-store']);
     }

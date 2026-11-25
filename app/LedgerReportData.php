@@ -19,8 +19,13 @@ class LedgerReportData
             ->selectRaw("journal.debit_account_id AS chart_account_id, journal.amount_minor AS signed_minor, journal.transaction_date,
                 journal.id AS entry_id, journal.source_reference, 'member_fund' AS source_kind,
                 journal.member_fund_transaction_id AS subject_id, journal.member_fund_transaction_id AS journal_reference, journal.posted_at");
-        $memberFundsCredit = DB::table('member_fund_journals as journal')
-            ->selectRaw("journal.credit_account_id AS chart_account_id, -journal.amount_minor AS signed_minor, journal.transaction_date,
+        $memberFundsCredit = DB::table('member_fund_journals as journal')->whereColumn('journal.amount_minor', '>', 'journal.withholding_minor')
+            ->selectRaw("journal.credit_account_id AS chart_account_id, journal.withholding_minor - journal.amount_minor AS signed_minor, journal.transaction_date,
+                journal.id AS entry_id, journal.source_reference, 'member_fund' AS source_kind,
+                journal.member_fund_transaction_id AS subject_id, journal.member_fund_transaction_id AS journal_reference, journal.posted_at");
+
+        $memberFundsWithholding = DB::table('member_fund_journals as journal')->whereNotNull('journal.withholding_account_id')
+            ->selectRaw("journal.withholding_account_id AS chart_account_id, -journal.withholding_minor AS signed_minor, journal.transaction_date,
                 journal.id AS entry_id, journal.source_reference, 'member_fund' AS source_kind,
                 journal.member_fund_transaction_id AS subject_id, journal.member_fund_transaction_id AS journal_reference, journal.posted_at");
 
@@ -50,7 +55,7 @@ class LedgerReportData
             ->selectRaw("line.chart_account_id, line.signed_minor, journal.transaction_date, line.id AS entry_id,
                 journal.source_reference, 'general' AS source_kind, journal.id AS subject_id, journal.id AS journal_reference, journal.posted_at");
 
-        return DB::query()->fromSub($loan->unionAll($memberFunds)->unionAll($memberFundsCredit)->unionAll($reversals)
+        return DB::query()->fromSub($loan->unionAll($memberFunds)->unionAll($memberFundsCredit)->unionAll($memberFundsWithholding)->unionAll($reversals)
             ->unionAll($opening)->unionAll($transferOut)->unionAll($transferIn)->unionAll($general), 'line');
     }
 

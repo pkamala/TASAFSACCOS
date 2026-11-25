@@ -23,7 +23,9 @@ class MemberFundJournalController extends Controller
             ->join('member_fund_transactions as transaction', 'transaction.id', '=', 'journal.member_fund_transaction_id')
             ->join('members as member', 'member.id', '=', 'transaction.member_id')
             ->join('users as actor', 'actor.id', '=', 'journal.posted_by')
-            ->orderByDesc('journal.id')->simplePaginate(TablePage::size(), [
+            ->orderByDesc('journal.id')
+            ->tap(TablePage::search(['journal.id', 'journal.transaction_date', 'journal.source_reference', 'transaction.kind', 'member.registration_no', 'actor.name']))
+            ->paginate(TablePage::size(), [
                 'journal.id', 'journal.member_fund_transaction_id', 'journal.transaction_date', 'journal.source_reference',
                 'journal.amount_minor', 'transaction.kind', 'member.registration_no', 'actor.name as actor',
             ]);
@@ -59,11 +61,14 @@ class MemberFundJournalController extends Controller
         $input = $request->validate([
             'cash_account' => ['required', 'integer', 'min:1'],
             'member_account' => ['required', 'integer', 'min:1', 'different:cash_account'],
+            'withholding_account' => [$record->withholding_minor > 0 ? 'required' : 'nullable', 'integer', 'min:1', 'different:cash_account,member_account'],
         ]);
-        $journal = $this->posting->fundJournal($record, (int) $input['cash_account'], (int) $input['member_account']);
+        $withholdingAccount = isset($input['withholding_account']) ? (int) $input['withholding_account'] : null;
+        $journal = $this->posting->fundJournal($record, (int) $input['cash_account'], (int) $input['member_account'], $withholdingAccount);
         $request->session()->put('member_fund_journal_preview', [
             'transaction' => $transaction, 'actor' => $request->user()->id, 'token' => Str::random(40),
-            'cash' => (int) $input['cash_account'], 'fund' => (int) $input['member_account'], 'journal' => $journal,
+            'cash' => (int) $input['cash_account'], 'fund' => (int) $input['member_account'],
+            'withholding' => $withholdingAccount, 'journal' => $journal,
         ]);
 
         return redirect()->route('staff.member-fund-journals.show', $transaction);
@@ -80,10 +85,10 @@ class MemberFundJournalController extends Controller
 
         DB::transaction(function () use ($preview, $actor, $transaction): void {
             $record = DB::table('member_fund_transactions')->lockForUpdate()->find($transaction);
-            if (! $record || DB::table('member_fund_journals')->where('member_fund_transaction_id', $transaction)->exists()) {
+            if (! $record || in_array($record->kind, ['savings_loan_payment', 'exit_savings', 'exit_shares'], true) || DB::table('member_fund_journals')->where('member_fund_transaction_id', $transaction)->exists()) {
                 $this->invalid('Only an unposted member transaction can be posted.');
             }
-            $journal = $this->posting->fundJournal($record, $preview['cash'], $preview['fund']);
+            $journal = $this->posting->fundJournal($record, $preview['cash'], $preview['fund'], $preview['withholding'] ?? null);
             if ($journal !== $preview['journal']) {
                 $this->invalid('The transaction changed after preview. Preview the journal again.');
             }
@@ -104,7 +109,7 @@ class MemberFundJournalController extends Controller
             ->join('members as member', 'member.id', '=', 'transaction.member_id')
             ->where('transaction.id', $id)
             ->first(['transaction.*', 'member.registration_no', 'member.first_name', 'member.last_name']);
-        abort_if($record === null, 404);
+        abort_if($record === null || in_array($record->kind, ['savings_loan_payment', 'exit_savings', 'exit_shares'], true), 404);
 
         return $record;
     }

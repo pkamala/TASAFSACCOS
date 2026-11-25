@@ -5,7 +5,7 @@
         <a class="print-hide" href="{{ route('staff.loan-batches.show', $record->id) }}">Payment list {{ $record->id }}</a>
         <p class="print-only">TASAF SACCOS</p>
         <h1>{{ $posting ? 'Posted loan journal '.$posting->id : 'Prepare loan journal' }}</h1>
-        <p>{{ ucfirst($record->kind) }} · Payment list {{ $record->id }} · {{ $record->effective_date }}</p>
+        <p>{{ $record->kind === 'savings_payment' ? 'Savings-funded repayment' : ucfirst($record->kind) }} · Payment list {{ $record->id }} · {{ $record->effective_date }}</p>
         @if ($posting)
             <p>Posted by {{ $posting->actor }} on {{ \Carbon\CarbonImmutable::parse($posting->posted_at)->setTimezone('Africa/Dar_es_Salaam')->format('d M Y H:i') }} EAT.</p>
             <button class="primary print-hide" type="button" onclick="window.print()">Print journal</button>
@@ -27,7 +27,13 @@
             <p>Choose the accounts approved by finance for this list. Where an account code is shared, use the account name and legacy ID to distinguish it.</p>
             <form class="fields" method="POST" action="{{ route('staff.loan-journal.preview', $record->id) }}">
                 @csrf
-                @foreach (['cash_account' => ['Cash or bank', 'cash'], 'principal_account' => ['Loan principal receivable', 'principal'], 'offset_account' => [$offset, 'offset']] as $field => [$label, $key])
+                @php
+                    $postingFields = ['cash_account' => [$record->kind === 'savings_payment' ? 'Member savings account' : 'Cash or bank', 'cash'], 'principal_account' => ['Loan principal receivable', 'principal'], 'offset_account' => [$offset, 'offset']];
+                    if ($topUpInterest) {
+                        $postingFields['top_up_interest_account'] = ['Original loan interest income', 'top_up_interest'];
+                    }
+                @endphp
+                @foreach ($postingFields as $field => [$label, $key])
                     @php($selected = old($field, $preview['accounts'][$key] ?? $defaults[$key] ?? ''))
                     <label for="{{ $field }}">{{ $label }} @if ($key === 'offset')<small>Required if the amount is nonzero</small>@endif</label>
                     <select id="{{ $field }}" name="{{ $field }}" @required($key !== 'offset')>

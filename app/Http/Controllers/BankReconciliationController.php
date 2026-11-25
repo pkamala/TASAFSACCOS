@@ -44,7 +44,8 @@ class BankReconciliationController extends Controller
         $history = $account === null ? null : DB::table('bank_reconciliations as review')
             ->join('users as actor', 'actor.id', '=', 'review.reviewed_by')
             ->where('review.chart_account_id', $account->id)->where('review.period', $period)->orderByDesc('review.id')
-            ->simplePaginate(TablePage::size(), ['review.*', 'actor.name as actor'])->appends(['account' => $account->id, 'month' => $month]);
+            ->tap(TablePage::search(['review.statement_reference', 'review.review_note', 'review.reviewed_at', 'actor.name']))
+            ->paginate(TablePage::size(), ['review.*', 'actor.name as actor'])->appends(['account' => $account->id, 'month' => $month]);
 
         return view('staff.bank-reconciliation', compact(
             'month', 'end', 'account', 'statuses', 'candidates', 'bookMinor', 'current', 'basis', 'selected', 'history', 'reviewLocked',

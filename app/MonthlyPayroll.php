@@ -87,7 +87,7 @@ class MonthlyPayroll
                 ->whereColumn('member_exits.member_id', 'members.id')->whereIn('member_exits.status', ['requested', 'approved']))
             ->select(['id', 'registration_no', 'payroll_savings_minor', 'payroll_shares_minor'])
             ->selectRaw('EXISTS (SELECT 1 FROM member_verified_balances AS balance
-                WHERE balance.member_id = members.id AND balance.as_of <= ?) AS has_opening', [$end])
+                WHERE balance.member_id = members.id AND balance.superseded_by_id IS NULL AND balance.as_of <= ?) AS has_opening', [$end])
             ->orderBy('id')->get();
         $missing = $members->where('has_opening', false);
         if ($missing->isNotEmpty()) {

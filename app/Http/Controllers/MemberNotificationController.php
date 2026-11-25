@@ -15,7 +15,9 @@ class MemberNotificationController extends Controller
         $member = $request->user()->member_id;
         abort_if($member === null, 403);
         $updates = $notifications->updates($member)->orderByDesc('occurred_at')->orderBy('kind')
-            ->orderByDesc('reference')->simplePaginate(TablePage::size());
+            ->orderByDesc('reference')
+            ->tap(TablePage::search(['kind', 'reference', 'status', 'occurred_at']))
+            ->paginate(TablePage::size());
 
         return view('member.notifications', compact('updates'));
     }

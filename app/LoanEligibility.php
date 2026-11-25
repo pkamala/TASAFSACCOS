@@ -3,6 +3,7 @@
 namespace App;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -12,7 +13,7 @@ class LoanEligibility
 
     public function __construct(private MemberFunds $funds) {}
 
-    public function details(int $member, ?int $application = null): array
+    public function details(int $member, ?int $category = null, ?int $application = null, ?int $replaces = null): array
     {
         $minimums = DB::table('loan_eligibility_revisions')->orderByDesc('id')->first();
         $funds = $this->funds->balances($member);
@@ -26,7 +27,10 @@ class LoanEligibility
         $limit = $balance === null ? null : 3 * max(0, $funds['available']);
         $committed = $limit === null ? 0 : (int) DB::table('loan_applications as loan')
             ->where('loan.member_id', $member)->whereIn('loan.status', ['approved', 'disbursed'])
-            ->when($application !== null, fn ($loans) => $loans->where('loan.id', '<>', $application))
+            ->when($category !== null, fn (Builder $loans) => $loans->where(
+                fn (Builder $categories) => $categories->where('loan.loan_category_id', $category)->orWhereNull('loan.loan_category_id'),
+            ))
+            ->whereNotIn('loan.id', array_filter([$application, $replaces]))
             ->selectRaw('COALESCE(SUM(GREATEST(0, loan.principal_minor + loan.insurance_minor + loan.processing_fee_minor + loan.other_charges_minor
                 - COALESCE((SELECT SUM(allocation.principal_minor) FROM loan_repayment_allocations AS allocation
                     WHERE allocation.loan_application_id = loan.id), 0))), 0) AS committed')
@@ -56,18 +60,29 @@ class LoanEligibility
         return compact('minimums', 'balance', 'reason', 'funds', 'capacity');
     }
 
-    public function requireEligible(int $member, int $financed, ?int $application = null): array
+    public function requireEligible(int $member, int $financed, ?int $category, ?int $application = null, ?int $replaces = null): array
     {
         DB::selectOne('SELECT pg_advisory_xact_lock_shared(hashtext(?))', ['loan-eligibility']);
-        $details = $this->details($member, $application);
+        $details = $this->details($member, $category, $application, $replaces);
         if ($details['reason'] !== null) {
             throw ValidationException::withMessages(['eligibility' => $details['reason']]);
         }
 
+        $this->requireAvailableCategory($member, $category, $application, $replaces);
+
         if ($financed > $details['capacity']) {
-            throw ValidationException::withMessages(['principal' => 'The financed loan amount plus existing loan commitments must be within three times available savings.']);
+            throw ValidationException::withMessages(['principal' => 'The financed loan amount plus remaining commitments in this category and any uncategorized loans must be within three times available savings.']);
         }
 
         return $details;
+    }
+
+    public function requireAvailableCategory(int $member, ?int $category, ?int $application = null, ?int $replaces = null): void
+    {
+        if ($category !== null && DB::table('loan_applications')->where('member_id', $member)
+            ->where('loan_category_id', $category)->whereIn('status', ['approved', 'disbursed'])
+            ->whereNotIn('id', array_filter([$application, $replaces]))->exists()) {
+            throw ValidationException::withMessages(['principal' => 'Only one active loan is allowed per category. Choose a different category or apply for a top-up.']);
+        }
     }
 }

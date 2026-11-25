@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ActiveLoanMigrationController;
 use App\Http\Controllers\AdminProfileController;
+use App\Http\Controllers\AgmMeetingController;
 use App\Http\Controllers\AssetRegisterController;
 use App\Http\Controllers\BankReconciliationController;
 use App\Http\Controllers\BoardRoleController;
@@ -14,6 +15,7 @@ use App\Http\Controllers\ChartAccountTransferController;
 use App\Http\Controllers\ChartOfAccountsController;
 use App\Http\Controllers\CutoverChecklistController;
 use App\Http\Controllers\DataImportController;
+use App\Http\Controllers\ExitSettlementRateController;
 use App\Http\Controllers\GeneralJournalController;
 use App\Http\Controllers\LedgerFinancialReportsController;
 use App\Http\Controllers\LedgerJournalReversalController;
@@ -34,7 +36,9 @@ use App\Http\Controllers\LoanTransactionsReportController;
 use App\Http\Controllers\MailDeliverySettingsController;
 use App\Http\Controllers\MailingAccountController;
 use App\Http\Controllers\MemberAccountController;
+use App\Http\Controllers\MemberAgmController;
 use App\Http\Controllers\MemberExitController;
+use App\Http\Controllers\MemberExitPostingController;
 use App\Http\Controllers\MemberFundJournalController;
 use App\Http\Controllers\MemberFundsController;
 use App\Http\Controllers\MemberLoginController;
@@ -45,8 +49,11 @@ use App\Http\Controllers\MemberSavingsController;
 use App\Http\Controllers\MembershipControlsController;
 use App\Http\Controllers\MonthlyStatementDraftController;
 use App\Http\Controllers\MonthlyStatementReviewController;
+use App\Http\Controllers\PayrollCorrectionController;
 use App\Http\Controllers\PayrollDeductionController;
 use App\Http\Controllers\PayrollJournalController;
+use App\Http\Controllers\PayrollLoanReconciliationController;
+use App\Http\Controllers\SavingsLoanPaymentController;
 use App\Http\Controllers\StaffAdminController;
 use App\Http\Controllers\StaffPasswordSetupController;
 use App\Http\Controllers\StaffSessionController;
@@ -73,6 +80,8 @@ Route::get('/member/account', MemberAccountController::class)->middleware(['auth
 Route::prefix('member')->name('member.')->middleware(['auth', 'auth.session'])->group(function (): void {
     Route::get('/loan-sponsors', [LoanSponsorshipController::class, 'search'])->middleware('throttle:60,1')->name('loan-sponsors.search');
     Route::get('/notifications', [MemberNotificationController::class, 'index'])->name('notifications.index');
+    Route::get('/agm', [MemberAgmController::class, 'index'])->name('agm.index');
+    Route::post('/agm/{meeting}/register', [MemberAgmController::class, 'register'])->whereNumber('meeting')->name('agm.register');
     Route::get('/notifications/count', [MemberNotificationController::class, 'count'])->name('notifications.count');
     Route::get('/loan-applications/new', [LoanApplicationController::class, 'create'])->name('loan-applications.create');
     Route::post('/loan-applications', [LoanApplicationController::class, 'store'])->name('loan-applications.store');
@@ -84,6 +93,14 @@ Route::post('/member/exit', [MemberExitController::class, 'storeOwn'])->middlewa
 Route::get('/branding/logo/{revision}', [BrandingController::class, 'logo'])->whereNumber('revision')->name('branding.logo');
 
 Route::prefix('staff')->name('staff.')->middleware(['auth', 'auth.session', 'can:manage-members'])->group(function (): void {
+    Route::prefix('agm')->name('agm.')->group(function (): void {
+        Route::get('/', [AgmMeetingController::class, 'index'])->name('index');
+        Route::post('/', [AgmMeetingController::class, 'store'])->name('store');
+        Route::get('/{meeting}', [AgmMeetingController::class, 'show'])->whereNumber('meeting')->name('show');
+        Route::patch('/{meeting}/registration', [AgmMeetingController::class, 'updateRegistration'])->whereNumber('meeting')->name('registration.update');
+        Route::patch('/{meeting}/registrations/{registration}', [AgmMeetingController::class, 'checkIn'])->whereNumber(['meeting', 'registration'])->name('check-in');
+        Route::get('/{meeting}/register.csv', [AgmMeetingController::class, 'export'])->whereNumber('meeting')->name('export');
+    });
     Route::get('/mailing-accounts', [MailingAccountController::class, 'index'])->name('mailing-accounts.index');
     Route::post('/mailing-accounts', [MailingAccountController::class, 'store'])->name('mailing-accounts.store');
     Route::patch('/mailing-accounts/selection', [MailingAccountController::class, 'select'])->name('mailing-accounts.select');
@@ -91,13 +108,25 @@ Route::prefix('staff')->name('staff.')->middleware(['auth', 'auth.session', 'can
     Route::patch('/mailing-accounts/automatic', [MailDeliverySettingsController::class, 'automatic'])->name('mailing-accounts.automatic');
     Route::get('/branding', [BrandingController::class, 'edit'])->name('branding.edit');
     Route::patch('/branding', [BrandingController::class, 'update'])->name('branding.update');
+    Route::get('/exit-settlement-rates', [ExitSettlementRateController::class, 'edit'])->name('exit-settlement-rates.edit');
+    Route::patch('/exit-settlement-rates', [ExitSettlementRateController::class, 'update'])->name('exit-settlement-rates.update');
     Route::get('/member-savings', MemberSavingsController::class)->name('member-savings.index');
     Route::get('/members/{member}/funds', [MemberFundsController::class, 'index'])->whereNumber('member')->name('member-funds.index');
     Route::post('/members/{member}/funds', [MemberFundsController::class, 'deposit'])->whereNumber('member')->name('member-funds.deposit');
+    Route::post('/members/{member}/funds/deposit-interest', [MemberFundsController::class, 'prepareDepositInterest'])->whereNumber('member')->name('member-funds.deposit-interest');
+    Route::post('/members/{member}/funds/savings-interest', [MemberFundsController::class, 'prepareSavingsInterest'])->whereNumber('member')->name('member-funds.savings-interest');
+    Route::post('/members/{member}/loan-applications/{application}/savings-payment', SavingsLoanPaymentController::class)
+        ->whereNumber(['member', 'application'])->name('loan-applications.savings-payment');
     Route::get('/membership-minimums', [MembershipControlsController::class, 'minimums'])->name('membership-minimums.index');
     Route::patch('/membership-minimums', [MembershipControlsController::class, 'saveMinimums'])->name('membership-minimums.update');
     Route::get('/cutover-checklist', CutoverChecklistController::class)->name('cutover-checklist');
     Route::get('/data-imports', [DataImportController::class, 'index'])->name('data-imports.index');
+    Route::get('/payroll-corrections', [PayrollCorrectionController::class, 'index'])->name('payroll-corrections.index');
+    Route::patch('/payroll-corrections/{correction}/resolve', [PayrollCorrectionController::class, 'resolve'])
+        ->whereNumber('correction')->name('payroll-corrections.resolve');
+    Route::get('/payroll-loan-reconciliation', [PayrollLoanReconciliationController::class, 'index'])->name('payroll-loan-reconciliation.index');
+    Route::patch('/payroll-loan-reconciliation/{deduction}', [PayrollLoanReconciliationController::class, 'reconcile'])
+        ->whereNumber('deduction')->name('payroll-loan-reconciliation.reconcile');
     Route::get('/data-imports/templates/{kind}', [DataImportController::class, 'template'])->name('data-imports.template');
     Route::post('/data-imports/preview', [DataImportController::class, 'preview'])->name('data-imports.preview');
     Route::post('/data-imports/apply', [DataImportController::class, 'apply'])->name('data-imports.apply');
@@ -140,6 +169,7 @@ Route::prefix('staff')->name('staff.')->middleware(['auth', 'auth.session', 'can
     Route::post('/general-journals/preview', [GeneralJournalController::class, 'preview'])->name('general-journals.preview');
     Route::post('/general-journals/post', [GeneralJournalController::class, 'post'])->name('general-journals.post');
     Route::get('/general-journals/{journal}', [GeneralJournalController::class, 'show'])->whereNumber('journal')->name('general-journals.show');
+    Route::get('/general-journals/{journal}/voucher', [GeneralJournalController::class, 'voucher'])->whereNumber('journal')->name('general-journals.voucher');
     Route::get('/ledger-reversals', [LedgerJournalReversalController::class, 'index'])->name('ledger-reversals.index');
     Route::get('/ledger-reversals/{reversal}', [LedgerJournalReversalController::class, 'show'])->whereNumber('reversal')->name('ledger-reversals.show');
     Route::get('/ledger-reversals/{source}/{journal}', [LedgerJournalReversalController::class, 'preview'])
@@ -189,6 +219,7 @@ Route::prefix('staff')->name('staff.')->middleware(['auth', 'auth.session', 'can
     Route::post('/verified-legacy-loans/apply', [VerifiedLegacyLoanBalanceController::class, 'apply'])->name('verified-legacy-loans.apply');
     Route::get('/loan-categories', [LoanCategoryController::class, 'index'])->name('loan-categories.index');
     Route::post('/loan-categories', [LoanCategoryController::class, 'store'])->name('loan-categories.store');
+    Route::patch('/loan-categories/{category}', [LoanCategoryController::class, 'update'])->whereNumber('category')->name('loan-categories.update');
     Route::get('/loan-pricing', [LoanPricingController::class, 'edit'])->name('loan-pricing.edit');
     Route::patch('/loan-pricing', [LoanPricingController::class, 'update'])->name('loan-pricing.update');
     Route::get('/admin-accounts', [StaffAdminController::class, 'index'])->name('admin-accounts.index');
@@ -222,8 +253,13 @@ Route::prefix('staff')->name('staff.')->middleware(['auth', 'auth.session', 'can
     Route::post('/savings-withdrawals/{withdrawal}/pay', [MemberFundsController::class, 'pay'])->whereNumber('withdrawal')->middleware('can:manage-members')->name('savings-withdrawals.pay');
     Route::get('/member-exits', [MemberExitController::class, 'index'])->name('member-exits.index');
     Route::get('/member-exits/{exit}', [MemberExitController::class, 'show'])->whereNumber('exit')->name('member-exits.show');
+    Route::get('/member-exits/{exit}/voucher', [MemberExitController::class, 'voucher'])->whereNumber('exit')->name('member-exits.voucher');
     Route::post('/member-exits/{exit}/review', [MemberExitController::class, 'review'])->whereNumber('exit')->middleware('can:review-loans')->name('member-exits.review');
     Route::post('/member-exits/{exit}/finalize', [MemberExitController::class, 'finalize'])->whereNumber('exit')->middleware('can:manage-members')->name('member-exits.finalize');
+    Route::get('/member-exits/{exit}/settlement', [MemberExitPostingController::class, 'show'])
+        ->whereNumber('exit')->middleware('can:manage-members')->name('member-exits.settlement.show');
+    Route::post('/member-exits/{exit}/settlement', [MemberExitPostingController::class, 'post'])
+        ->whereNumber('exit')->middleware('can:manage-members')->name('member-exits.settlement.post');
     Route::get('/loan-register', LoanRegisterController::class)->name('loan-register');
     Route::prefix('loan-batches')->name('loan-batches.')->group(function (): void {
         Route::get('/', [LoanBatchController::class, 'index'])->name('index');
@@ -253,6 +289,8 @@ Route::prefix('staff')->name('staff.')->middleware(['auth', 'auth.session', 'can
             Route::post('/review', [LoanApplicationController::class, 'review'])->middleware('can:review-loan-applications')->name('review');
             Route::post('/cancel-for-exit', [LoanApplicationController::class, 'cancelForExit'])->middleware('can:review-loans')->name('cancel-for-exit');
             Route::get('/minutes', [LoanApplicationController::class, 'minutes'])->name('minutes');
+            Route::get('/voucher', [LoanApplicationController::class, 'voucher'])->name('voucher');
+            Route::get('/top-up-voucher', [LoanApplicationController::class, 'topUpVoucher'])->name('top-up-voucher');
         });
 });
 

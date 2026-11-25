@@ -34,7 +34,9 @@ class LedgerPeriodController extends Controller
         $mayClose = ! $closed && $ended && array_sum($unposted) === 0 && (! $requiresReconciliation || $banksPending === 0);
         $history = DB::table('ledger_period_events as event')->where('event.period', $from)
             ->join('users as actor', 'actor.id', '=', 'event.recorded_by')
-            ->orderByDesc('event.id')->simplePaginate(TablePage::size(), ['event.*', 'actor.name as actor'])->appends(compact('month'));
+            ->orderByDesc('event.id')
+            ->tap(TablePage::search(['event.action', 'event.reason', 'event.recorded_at', 'actor.name']))
+            ->paginate(TablePage::size(), ['event.*', 'actor.name as actor'])->appends(compact('month'));
 
         return view('staff.ledger-periods', compact('month', 'from', 'to', 'unposted', 'closed', 'mayClose', 'history', 'reportTo', 'bankStatuses', 'ended', 'requiresReconciliation', 'banksPending'));
     }

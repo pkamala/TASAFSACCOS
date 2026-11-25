@@ -4,12 +4,24 @@
     <div class="page-intro">
         <a class="print-hide" href="{{ route('staff.loan-batches.index') }}">Payment lists</a>
         <p class="print-only">TASAF SACCOS</p>
-        <h1>{{ $record->kind === 'disbursement' ? 'Disbursement checklist' : 'Monthly TASAF payroll list' }} {{ $record->id }}</h1>
+        <h1>{{ match ($record->kind) { 'disbursement' => 'Disbursement checklist', 'savings_payment' => 'Savings-funded repayment', default => 'Monthly TASAF payroll list' } }} {{ $record->id }}</h1>
         <p>{{ ucfirst($record->status) }} @if ($record->period) · {{ substr($record->period, 0, 7) }} · TASAF Accounts @endif</p>
         @if ($record->reviewed_by)<button class="primary print-hide" type="button" onclick="window.print()">Print list</button>@endif
     </div>
     @if (session('status'))<p role="status">{{ session('status') }}</p>@endif
     @include('form-errors')
+    @if ($payrollTotals !== null)
+        <dl class="summary">
+            <div><dt>Confirmed savings (TZS)</dt><dd>{{ number_format($payrollTotals['savings'] / 100, 2) }}</dd></div>
+            <div><dt>Confirmed shares (TZS)</dt><dd>{{ number_format($payrollTotals['shares'] / 100, 2) }}</dd></div>
+            <div><dt>Confirmed loan repayments (TZS)</dt><dd>{{ number_format($payrollTotals['loans'] / 100, 2) }}</dd></div>
+        </dl>
+        @if ($pendingLoanDeductions > 0)
+            <p class="print-hide">
+                <a href="{{ route('staff.payroll-loan-reconciliation.index', ['month' => substr($record->period, 0, 7)]) }}">{{ number_format($pendingLoanDeductions) }} {{ Str::plural('loan deduction', $pendingLoanDeductions) }} awaiting reconciliation</a>
+            </p>
+        @endif
+    @endif
     @if ($record->status === 'confirmed' && $record->kind === 'repayment')
         @can('manage-members')
             @if ($confirmedTotal === 0)
@@ -19,40 +31,72 @@
             @endif
         @endcan
     @endif
-    @if ($record->status === 'confirmed' && $record->kind === 'disbursement' && collect($items)->pluck('loan_id')->filter()->isNotEmpty())
+    @if ($record->status === 'confirmed' && in_array($record->kind, ['disbursement', 'savings_payment'], true) && collect($items)->pluck('loan_id')->filter()->isNotEmpty())
         @can('manage-members')
             <p class="print-hide"><a href="{{ route('staff.loan-journal.show', $record->id) }}">View or prepare loan journal</a></p>
         @endcan
     @endif
     <section class="panel print-register">
+        @if ($deductionReview !== null)
+            <h2>Confirmed payroll deductions</h2>
+            <p>TASAF Accounts reference {{ $deductionReview['reference'] }} · Actual total TZS {{ number_format($confirmedTotal / 100, 2) }}</p>
+            @if ($deductionReview['note'])<p>{{ $deductionReview['note'] }}</p>@endif
+        @endif
         <div class="table-wrap"><table data-table-pages>
-            <thead><tr><th scope="col">Transaction</th><th scope="col">Member</th><th scope="col" class="money">Amount (TZS)</th>@if ($record->kind === 'repayment')<th scope="col">Allocations (TZS)</th>@endif</tr></thead>
+            <thead><tr><th scope="col">Transaction</th><th scope="col">Member</th><th scope="col" class="money">{{ $deductionReview ? 'Planned amount' : 'Amount' }} (TZS)</th>@if ($record->kind !== 'disbursement')<th scope="col">Allocations (TZS)</th>@endif</tr></thead>
             <tbody>
                 @foreach ($items as $item)
-                    @php($member = $members->get($item['member_id']))
+                    @php
+                        $member = $members->get($item['member_id']);
+                        $rowKey = isset($item['loan_id']) ? 'loan:'.$item['loan_id'] : 'fund:'.$item['member_id'];
+                    @endphp
                     <tr><th scope="row">
                         @if (isset($item['loan_id']))
                             <a href="{{ route('staff.loan-applications.show', [$item['member_id'], $item['loan_id']]) }}">Loan {{ $item['loan_id'] }}</a>
                         @else
-                            Savings and shares
+                            Contributions
                         @endif
-                    </th><td>{{ $member->registration_no }} · {{ $member->first_name }} {{ $member->last_name }}</td><td class="money">{{ number_format($item['amount'] / 100, 2) }}</td>
-                        @if ($record->kind === 'repayment')
+                    </th><td>{{ $member->registration_no }} · {{ $member->first_name }} {{ $member->last_name }}</td><td class="money">
+                        {{ number_format($item['amount'] / 100, 2) }}
+                        @if ($topUp = $topUpTransfers[$item['loan_id'] ?? 0] ?? null)
+                            <div>Clears loan {{ $topUp['loan'] }} · {{ number_format($topUp['payoff'] / 100, 2) }}</div>
+                            <div>{{ $record->status === 'confirmed' ? 'Net transfer' : 'Estimated net transfer' }} · {{ number_format($topUp['net'] / 100, 2) }}</div>
+                        @endif
+                    </td>
+                        @if ($record->kind !== 'disbursement')
                             <td>
                                 @if (isset($item['funds']))
-                                    <div>Savings {{ number_format($item['funds']['savings_deposit'] / 100, 2) }}</div>
-                                    <div>Shares {{ number_format($item['funds']['share_purchase'] / 100, 2) }}</div>
+                                    @foreach (array_filter($item['funds']) as $kind => $amount)
+                                        @php($label = $kind === 'savings_deposit' ? 'Savings' : 'Shares')
+                                        @php($transaction = $fundTransactions->get($item['member_id'])?->get($kind))
+                                        <div>
+                                            {{ $label }} {{ number_format($amount / 100, 2) }}
+                                            @if ($transaction)
+                                                @can('manage-members')
+                                                    <a class="print-hide" href="{{ route('staff.member-fund-journals.show', $transaction->id) }}" aria-label="View {{ strtolower($label) }} journal for {{ $member->registration_no }}">Journal</a>
+                                                @endcan
+                                            @endif
+                                        </div>
+                                    @endforeach
                                 @else
                                     @foreach ($item['allocations'] as $number => $allocation)
                                         <div>Month {{ $number }} @isset($item['overdue_installments'][$number]) · Overdue since {{ $item['overdue_installments'][$number] }} @endisset · Principal {{ number_format($allocation['principal'] / 100, 2) }} · Interest {{ number_format($allocation['interest'] / 100, 2) }}</div>
                                     @endforeach
                                 @endif
+                                @foreach ($deductionDifferences->get($rowKey, []) as $difference)
+                                    <div>{{ $difference['label'] }} · {{ $difference['status'] }} · Planned {{ number_format($difference['planned'] / 100, 2) }} · Actual {{ number_format($difference['actual'] / 100, 2) }}</div>
+                                @endforeach
                             </td>
                         @endif
                     </tr>
                 @endforeach
             </tbody>
-            <tfoot><tr><th scope="row" colspan="2">Total</th><td class="money">{{ number_format(array_sum(array_column($items, 'amount')) / 100, 2) }}</td>@if ($record->kind === 'repayment')<td></td>@endif</tr></tfoot>
+            <tfoot>
+                <tr><th scope="row" colspan="2">{{ $netTransferTotal === null ? 'Total' : 'Total principal' }}</th><td class="money">{{ number_format(array_sum(array_column($items, 'amount')) / 100, 2) }}</td>@if ($record->kind !== 'disbursement')<td></td>@endif</tr>
+                @if ($netTransferTotal !== null)
+                    <tr><th scope="row" colspan="2">{{ $record->status === 'confirmed' ? 'Total net bank transfers' : 'Estimated total net bank transfers' }}</th><td class="money">{{ number_format($netTransferTotal / 100, 2) }}</td></tr>
+                @endif
+            </tfoot>
         </table></div>
         <p>Prepared by {{ $actors->get($record->prepared_by) }} · {{ $record->prepared_at }}</p>
         @if ($record->reviewed_by)<p>{{ ucfirst($record->status === 'declined' ? 'declined' : 'approved') }} by {{ $actors->get($record->reviewed_by) }} · {{ $record->reviewed_at }} · {{ $record->review_note }}</p>@endif
@@ -62,39 +106,6 @@
         @endif
         @if ($record->evidence_id)<p class="print-hide"><a href="{{ route('staff.loan-batches.checklist', $record->id) }}">Download bank-stamped checklist (PDF)</a></p>@endif
     </section>
-    @if ($deductionReview !== null)
-        <section class="panel stacked-panel">
-            <h2>Confirmed payroll deductions</h2>
-            <p>TASAF Accounts reference {{ $deductionReview['reference'] }} · Actual total TZS {{ number_format($confirmedTotal / 100, 2) }}</p>
-            @if ($deductionReview['note'])<p>{{ $deductionReview['note'] }}</p>@endif
-            @if ($deductionDifferences)
-                <div class="table-wrap" tabindex="0" role="region" aria-label="Confirmed deduction exceptions">
-                    <table data-table-pages>
-                        <thead><tr><th scope="col">Member</th><th scope="col">Deduction</th><th class="money" scope="col">Planned (TZS)</th><th class="money" scope="col">Actual (TZS)</th><th scope="col">Status</th></tr></thead>
-                        <tbody>
-                            @foreach ($deductionDifferences as $row)
-                                <tr><th scope="row">{{ $members->get($row['member_id'])->registration_no }}</th><td>{{ $row['label'] }}</td>
-                                    <td class="money">{{ number_format($row['planned'] / 100, 2) }}</td><td class="money">{{ number_format($row['actual'] / 100, 2) }}</td><td>{{ $row['status'] }}</td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                </div>
-            @endif
-        </section>
-    @endif
-    @can('manage-members')
-        @if ($fundTransactions->isNotEmpty())
-            <section class="panel stacked-panel print-hide">
-                <h2>Confirmed savings and share transactions</h2>
-                <ul class="template-list">
-                    @foreach ($fundTransactions as $transaction)
-                        <li><a href="{{ route('staff.member-fund-journals.show', $transaction->id) }}">{{ $members->get($transaction->member_id)->registration_no }} · {{ ucfirst(str_replace('_', ' ', $transaction->kind)) }} · TZS {{ number_format($transaction->signed_minor / 100, 2) }}</a></li>
-                    @endforeach
-                </ul>
-            </section>
-        @endif
-    @endcan
     @if ($record->status === 'prepared')
         @can('review-loans')
             <section class="panel stacked-panel print-hide"><h2>Review list</h2>
@@ -128,6 +139,10 @@
                         @foreach ($items as $item)
                             <label for="ref-{{ $item['loan_id'] }}">Transfer reference for loan {{ $item['loan_id'] }}</label>
                             <input id="ref-{{ $item['loan_id'] }}" name="references[{{ $item['loan_id'] }}]" maxlength="100" required>
+                            @isset($topUpTransfers[$item['loan_id']])
+                                <label for="net-{{ $item['loan_id'] }}">Actual net bank transfer for loan {{ $item['loan_id'] }} (TZS)</label>
+                                <input id="net-{{ $item['loan_id'] }}" name="net_transfers[{{ $item['loan_id'] }}]" value="{{ old('net_transfers.'.$item['loan_id']) }}" type="number" min="0.01" step="0.01" required>
+                            @endisset
                         @endforeach
                         <button class="primary">Confirm approved list</button>
                     </form>

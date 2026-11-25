@@ -16,11 +16,14 @@ class MailingAccountController extends Controller
     {
         $active = $mailer->selectedAccountId();
         $accounts = DB::table('mailing_accounts')->orderByRaw('lower(label)')->orderBy('id')
-            ->simplePaginate(TablePage::size(), ['id', 'label', 'from_address', 'host', 'port', 'security']);
+            ->tap(TablePage::search(['id', 'label', 'from_address', 'host', 'security']))
+            ->paginate(TablePage::size(), ['id', 'label', 'from_address', 'host', 'port', 'security']);
         $history = DB::table('mailing_account_selections as change')
             ->leftJoin('mailing_accounts as account', 'account.id', '=', 'change.mailing_account_id')
             ->join('users as actor', 'actor.id', '=', 'change.changed_by')
-            ->orderByDesc('change.id')->simplePaginate(TablePage::size('history_page'), ['account.label', 'actor.name as actor', 'change.changed_at'], 'history_page');
+            ->orderByDesc('change.id')
+            ->tap(TablePage::search(['account.label', 'actor.name', 'change.changed_at'], 'history_page'))
+            ->paginate(TablePage::size('history_page'), ['account.label', 'actor.name as actor', 'change.changed_at'], 'history_page');
 
         $incoming = DB::table('incoming_mail_settings')->find(1, ['protocol', 'host', 'port', 'security', 'username', 'changed_at']);
         $automatic = $mailer->automaticEnabled();

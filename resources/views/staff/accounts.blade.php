@@ -43,7 +43,7 @@
                     </tbody>
                 </table>
             </div>
-            @include('staff.pagination', ['page' => $accounts])
+            @include('staff.pagination', ['page' => $accounts, 'searchable' => false])
         </div>
         @endfragment
     </section>

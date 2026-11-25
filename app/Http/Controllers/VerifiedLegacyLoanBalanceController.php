@@ -29,7 +29,9 @@ class VerifiedLegacyLoanBalanceController extends Controller
             ->join('users as actor', 'actor.id', '=', 'balance.verified_by')
             ->selectRaw('balance.source_sha256, balance.as_of, balance.report_sha256, balance.evidence_reference, actor.name AS actor, max(balance.verified_at) AS verified_at, count(*) AS loan_count')
             ->groupBy('balance.source_sha256', 'balance.as_of', 'balance.report_sha256', 'balance.evidence_reference', 'actor.id')
-            ->orderByDesc('verified_at')->orderBy('balance.report_sha256')->simplePaginate(TablePage::size());
+            ->orderByDesc('verified_at')->orderBy('balance.report_sha256')
+            ->tap(TablePage::search(['balance.as_of', 'balance.evidence_reference', 'actor.name']))
+            ->paginate(TablePage::size());
 
         return view('staff.verified-legacy-loan-balances', compact('snapshots', 'preview', 'ready', 'recorded', 'exceptions', 'history'));
     }

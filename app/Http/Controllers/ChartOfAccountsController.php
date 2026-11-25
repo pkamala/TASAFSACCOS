@@ -45,7 +45,7 @@ class ChartOfAccountsController extends Controller
                 });
             })
             ->orderByRaw('lower(account.name)')->orderBy('account.code')->orderBy('account.id')
-            ->simplePaginate(TablePage::size())->appends(['q' => $search, 'category' => $category, 'status' => $status]);
+            ->paginate(TablePage::size())->appends(['q' => $search, 'category' => $category, 'status' => $status]);
 
         $view = view('staff.accounts', compact('accounts', 'categories', 'category', 'search', 'status'));
 

@@ -21,7 +21,7 @@ class LoanCalculatorController extends Controller
         $annualBasisPoints = $pricing->annual_basis_points ?? 1000;
         $defaults = ['amount' => '1000000', 'months' => '12', 'first_due_date' => ''];
         $chargeLabels = [
-            'insurance' => 'Insurance',
+            'insurance' => 'Contingency Fund',
             'processing_fee' => 'Loan processing fee',
             'other_charges' => 'Other charges',
         ];

@@ -21,7 +21,9 @@ class LoanPricingController extends Controller
         $history = DB::table('loan_pricing_revisions as revision')
             ->join('users as admin', 'admin.id', '=', 'revision.changed_by')
             ->where(fn ($query) => $query->where('revision.loan_category_id', $category)->orWhereNull('revision.loan_category_id'))
-            ->select('revision.*', 'admin.name as actor')->orderByDesc('revision.id')->simplePaginate(TablePage::size());
+            ->select('revision.*', 'admin.name as actor')->orderByDesc('revision.id')
+            ->tap(TablePage::search(['revision.reason', 'revision.interest_method', 'revision.changed_at', 'admin.name']))
+            ->paginate(TablePage::size());
 
         return view('staff.loan-applications.pricing', compact('current', 'history', 'categories', 'category'));
     }

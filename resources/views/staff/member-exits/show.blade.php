@@ -6,6 +6,14 @@
         <h1>Membership exit {{ $record->id }}</h1>
         <p>{{ $profile->first_name }} {{ $profile->last_name }} · {{ $profile->registration_no }} · {{ ucfirst($record->status) }}</p>
     </div>
+    @if (in_array($record->status, ['approved', 'finalized'], true))
+        <p><a href="{{ route('staff.member-exits.voucher', $record->id) }}">View exit voucher</a></p>
+    @endif
+    @can('manage-members')
+        @if ($record->status === 'approved' && $draft)
+            <p><a href="{{ route('staff.member-exits.settlement.show', $record->id) }}">Review and post exit settlement</a></p>
+        @endif
+    @endcan
     @if (session('status'))<p role="status">{{ session('status') }}</p>@endif
     @include('form-errors')
     <section class="panel">
@@ -33,6 +41,31 @@
             @endcan
         @endif
     </section>
+    @if (in_array($record->status, ['requested', 'approved'], true))
+        <section class="panel stacked-panel">
+            <h2>Draft settlement as of {{ $draftDate->format('d M Y') }}</h2>
+            @if ($draft)
+                <dl class="summary">
+                    <div><dt>Current savings (TZS)</dt><dd>{{ number_format($draft['savings'] / 100, 2) }}</dd></div>
+                    <div><dt>Withdrawal processing fee · 2% (TZS)</dt><dd>{{ number_format($draft['fee'] / 100, 2) }}</dd></div>
+                    <div><dt>Outstanding loan principal (TZS)</dt><dd>{{ number_format($draft['principal'] / 100, 2) }}</dd></div>
+                    <div><dt>Unpaid loan interest through {{ $draftDate->format('F Y') }} (TZS)</dt><dd>{{ number_format($draft['loanInterest'] / 100, 2) }}</dd></div>
+                    <div><dt>Share refund at face value (TZS)</dt><dd>{{ number_format($draft['shares'] / 100, 2) }}</dd></div>
+                    <div><dt>Subtotal before savings interest and withholding (TZS)</dt><dd>{{ number_format($draft['subtotal'] / 100, 2) }}</dd></div>
+                    <div><dt>Gross unposted savings interest for {{ $draftDate->year }} · {{ $draft['interest']['annualRate'] / 100 }}% annually (TZS)</dt><dd>{{ number_format($draft['interest']['gross'] / 100, 2) }}</dd></div>
+                    <div><dt>Withholding · {{ $draft['interest']['withholdingRate'] / 100 }}% of gross interest (TZS)</dt><dd>{{ number_format($draft['interest']['withholding'] / 100, 2) }}</dd></div>
+                    <div><dt>Net savings interest (TZS)</dt><dd>{{ number_format($draft['interest']['net'] / 100, 2) }}</dd></div>
+                    <div><dt>{{ $draft['interest']['payout'] < 0 ? 'Settlement shortfall' : 'Draft payout' }} (TZS)</dt><dd>{{ number_format(abs($draft['interest']['payout']) / 100, 2) }}</dd></div>
+                </dl>
+                <p>Posted net interest is included in current savings. Unposted interest is calculated for completed months in {{ $draftDate->year }} covered by verified savings records.</p>
+                @if ($profile->legacy_member_id !== null)
+                    <p>Reconcile any remaining legacy balances and liabilities against the clearance record.</p>
+                @endif
+            @else
+                <p>A verified opening balance is needed to calculate the draft settlement.</p>
+            @endif
+        </section>
+    @endif
     @if ($record->status === 'approved')
         @can('manage-members')
             <section class="panel stacked-panel">

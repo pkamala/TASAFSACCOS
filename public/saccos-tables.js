@@ -1,37 +1,94 @@
-document.querySelectorAll('table[data-table-pages]').forEach(table => {
-    const rows = Array.from(table.tBodies).flatMap(body => Array.from(body.rows));
-    if (!rows.length) return;
+const tableNumber = new Intl.NumberFormat(document.documentElement.lang || 'en');
 
+function recordsLabel(total) {
+    return `${tableNumber.format(total)} ${total === 1 ? 'record' : 'records'}`;
+}
+
+document.querySelectorAll('main table').forEach(table => {
+    const wrapper = table.closest('.table-wrap') ?? table;
+    const serverControls = wrapper.nextElementSibling;
+    if (serverControls?.matches('[data-server-table-pagination]')) {
+        const form = serverControls.querySelector('[data-table-search-form]');
+        if (form) wrapper.before(form);
+        return;
+    }
+
+    const rows = Array.from(table.tBodies).flatMap(body => Array.from(body.rows))
+        .filter(row => !(row.cells.length === 1 && row.cells[0].matches('td[colspan]')));
     const controls = document.createElement('div');
     controls.className = 'table-pagination print-hide';
-    controls.innerHTML = `
-        <label class="page-size">Rows per page
-            <select>
-                <option selected>10</option><option>25</option><option>50</option><option>100</option>
-            </select>
-        </label>
-        <button type="button">Previous</button>
-        <span role="status"></span>
-        <button type="button">Next</button>
-    `;
+    wrapper.after(controls);
+
+    if (!rows.length) {
+        controls.textContent = recordsLabel(0);
+        return;
+    }
+
+    const label = document.createElement('label');
+    label.className = 'page-size print-hide';
+    label.textContent = 'Search table';
+    const search = document.createElement('input');
+    search.type = 'search';
+    search.maxLength = 100;
+    label.append(search);
+    wrapper.before(label);
+    search.addEventListener('keydown', event => {
+        if (event.key === 'Enter') event.preventDefault();
+    });
+
+    const paged = table.hasAttribute('data-table-pages');
+    if (paged) {
+        controls.innerHTML = `
+            <label class="page-size">Rows per page
+                <select>
+                    <option selected>10</option><option>25</option><option>50</option><option>100</option>
+                </select>
+            </label>
+            <button type="button">Previous</button>
+            <span role="status"></span>
+            <button type="button">Next</button>
+        `;
+    } else {
+        controls.innerHTML = '<span role="status"></span>';
+    }
+
     const [previous, next] = controls.querySelectorAll('button');
     const size = controls.querySelector('select');
     const status = controls.querySelector('[role="status"]');
+    const rowText = rows.map(row => Array.from(row.cells, cell => cell.textContent).join(' ').toLocaleLowerCase());
     let page = 0;
 
     function render() {
-        const count = Number(size.value);
-        const first = page * count;
-        rows.forEach((row, index) => row.classList.toggle('outside-table-page', index < first || index >= first + count));
-        previous.disabled = first === 0;
-        next.disabled = first + count >= rows.length;
-        status.textContent = `${first + 1}–${Math.min(first + count, rows.length)} of ${rows.length}`;
+        const terms = search.value.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
+        const pageSize = size ? Number(size.value) : rows.length;
+        const first = page * pageSize;
+        let total = 0;
+
+        rows.forEach((row, index) => {
+            const matches = terms.every(term => rowText[index].includes(term));
+            row.hidden = !matches;
+            row.classList.toggle('outside-table-page', matches && (total < first || total >= first + pageSize));
+            if (matches) total += 1;
+        });
+
+        if (paged) {
+            previous.disabled = first === 0;
+            next.disabled = first + pageSize >= total;
+        }
+        status.textContent = paged && total
+            ? `Showing ${tableNumber.format(first + 1)}–${tableNumber.format(Math.min(first + pageSize, total))} of ${recordsLabel(total)}`
+            : recordsLabel(total);
     }
 
-    size.addEventListener('change', () => { page = 0; render(); });
-    previous.addEventListener('click', () => { page -= 1; render(); });
-    next.addEventListener('click', () => { page += 1; render(); });
-    (table.closest('.table-wrap') ?? table).after(controls);
+    function resetPage() {
+        page = 0;
+        render();
+    }
+
+    search.addEventListener('input', resetPage);
+    size?.addEventListener('change', resetPage);
+    previous?.addEventListener('click', () => { page -= 1; render(); });
+    next?.addEventListener('click', () => { page += 1; render(); });
     render();
 });
 

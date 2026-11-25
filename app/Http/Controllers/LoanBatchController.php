@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\LedgerPeriods;
 use App\LoanEvidence;
+use App\LoanTopUp;
 use App\Models\User;
 use App\MonthlyPayroll;
 use App\PayrollDeductions;
@@ -25,7 +26,9 @@ class LoanBatchController extends Controller
 {
     public function index(): View
     {
-        $batches = DB::table('loan_batches')->orderByDesc('id')->simplePaginate(TablePage::size());
+        $batches = DB::table('loan_batches')->where('kind', '<>', 'exit_settlement')->orderByDesc('id')
+            ->tap(TablePage::search(['id', 'kind', 'period', 'status', 'effective_date', 'review_note']))
+            ->paginate(TablePage::size());
 
         return view('staff.loan-batches.index', compact('batches'));
     }
@@ -89,10 +92,15 @@ class LoanBatchController extends Controller
         }, 3);
     }
 
-    public function show(int $batch, PayrollDeductions $deductions): View
+    public function show(Request $request, int $batch, PayrollDeductions $deductions, LoanTopUp $topUps): View|RedirectResponse
     {
         $record = DB::table('loan_batches')->find($batch);
         abort_if($record === null, 404);
+        if ($record->kind === 'exit_settlement') {
+            $exit = DB::table('member_exits')->where('settlement_batch_id', $batch)->sole();
+
+            return redirect()->route('staff.member-exits.voucher', $exit->id);
+        }
         $items = json_decode($record->items, true, flags: JSON_THROW_ON_ERROR);
         $members = DB::table('members')->whereIn('id', array_column($items, 'member_id'))
             ->get(['id', 'registration_no', 'first_name', 'last_name'])->keyBy('id');
@@ -100,14 +108,50 @@ class LoanBatchController extends Controller
             ->pluck('name', 'id');
 
         $fundTransactions = DB::table('member_fund_transactions')->where('loan_batch_id', $batch)
-            ->orderBy('id')->get(['id', 'member_id', 'kind', 'signed_minor']);
+            ->whereIn('kind', ['savings_deposit', 'share_purchase'])
+            ->orderBy('id')->get(['id', 'member_id', 'kind'])
+            ->groupBy('member_id')->map(fn ($transactions) => $transactions->keyBy('kind'));
 
         $deductionReview = json_decode($record->deduction_review ?? 'null', true, flags: JSON_THROW_ON_ERROR);
-        $deductionDifferences = $deductionReview === null ? [] : $deductions->differences($deductions->components($items), $deductionReview['overrides']);
-        $confirmedTotal = $deductionReview === null ? null : array_sum(array_column(PayrollDeductions::confirmedItems($record), 'amount'));
+        $deductionDifferences = collect($deductionReview === null ? [] : $deductions->differences($deductions->components($items), $deductionReview['overrides']))
+            ->groupBy(fn (array $row): string => isset($row['loan_id']) ? 'loan:'.$row['loan_id'] : 'fund:'.$row['member_id']);
+        $confirmedItems = $deductionReview === null ? $items : PayrollDeductions::confirmedItems($record);
+        $confirmedTotal = $deductionReview === null ? null : array_sum(array_column($confirmedItems, 'amount'));
+        $payrollTotals = null;
+        $pendingLoanDeductions = 0;
+        if ($record->kind === 'repayment' && $record->status === 'confirmed') {
+            $confirmed = collect($confirmedItems);
+            $payrollTotals = [
+                'savings' => $confirmed->sum('funds.savings_deposit'),
+                'shares' => $confirmed->sum('funds.share_purchase'),
+                'loans' => $confirmed->whereNotNull('loan_id')->sum('amount'),
+            ];
+            if ($record->period !== null && $request->user()->can('manage-members')) {
+                $pendingLoanDeductions = DB::table('payroll_loan_reconciliations')
+                    ->where('payroll_month', $record->period)->whereNull('receipt_id')->count();
+            }
+        }
+
+        $topUpTransfers = [];
+        if ($record->kind === 'disbursement') {
+            $topUpTransfers = DB::table('loan_applications as loan')->whereIn('loan.id', array_column($items, 'loan_id'))
+                ->whereNotNull('loan.top_up_loan_id')
+                ->leftJoin('loan_disbursements as transfer', 'transfer.loan_application_id', '=', 'loan.id')
+                ->get(['loan.id', 'loan.top_up_loan_id', 'loan.principal_minor', 'transfer.cash_amount_minor'])
+                ->mapWithKeys(function ($loan) use ($topUps): array {
+                    $payoff = $loan->cash_amount_minor !== null
+                        ? $loan->principal_minor - $loan->cash_amount_minor
+                        : $topUps->quote($loan->top_up_loan_id, now('Africa/Dar_es_Salaam')->toDateString())['total'];
+
+                    return [$loan->id => ['loan' => $loan->top_up_loan_id, 'payoff' => $payoff, 'net' => $loan->principal_minor - $payoff]];
+                })->all();
+        }
+        $netTransferTotal = $topUpTransfers === [] ? null
+            : array_sum(array_column($items, 'amount')) - array_sum(array_column($topUpTransfers, 'payoff'));
 
         return view('staff.loan-batches.show', compact(
             'record', 'items', 'members', 'actors', 'fundTransactions', 'deductionReview', 'deductionDifferences', 'confirmedTotal',
+            'payrollTotals', 'pendingLoanDeductions', 'topUpTransfers', 'netTransferTotal',
         ));
     }
 
@@ -146,6 +190,8 @@ class LoanBatchController extends Controller
             'bank_checklist' => ['nullable', 'file', 'mimes:pdf', 'max:8192'],
             'references' => ['nullable', 'array', 'max:100'],
             'references.*' => ['required', 'string', 'max:100'],
+            'net_transfers' => ['nullable', 'array', 'max:100'],
+            'net_transfers.*' => ['required', 'numeric', 'decimal:0,2', 'between:0.01,100000000000'],
             'payroll_reference' => ['nullable', 'string', 'max:100'],
             'deduction_token' => ['nullable', 'string', 'size:40'],
             'deduction_note' => ['nullable', 'string', 'max:500'],
@@ -153,9 +199,7 @@ class LoanBatchController extends Controller
         ]);
 
         DB::transaction(function () use ($request, $batch, $data, $transfers, $repayments, $evidence, $funds, $periods, $deductions): void {
-            if (DB::table('loan_batches')->where('id', $batch)->where('kind', 'repayment')->exists()) {
-                DB::selectOne('SELECT pg_advisory_xact_lock(hashtext(?))', ['payroll-schedule']);
-            }
+            DB::selectOne('SELECT pg_advisory_xact_lock(hashtext(?))', ['payroll-schedule']);
             $record = DB::table('loan_batches')->lockForUpdate()->find($batch);
             abort_if($record === null, 404);
             if ($record->status !== 'approved') {
@@ -190,7 +234,7 @@ class LoanBatchController extends Controller
             foreach ($items as $item) {
                 if (isset($item['funds'])) {
                     $member = $members->get($item['member_id']);
-                    $opening = DB::table('member_verified_balances')->where('member_id', $member->id)
+                    $opening = DB::table('member_verified_balances')->whereNull('superseded_by_id')->where('member_id', $member->id)
                         ->orderByDesc('as_of')->orderByDesc('id')->first();
                     if ($member->status !== 'active' || $opening === null || $data['effective_date'] < $opening->as_of) {
                         $this->invalid('Contributions require active membership and a verified opening balance dated on or before the payroll transaction.');
@@ -211,6 +255,7 @@ class LoanBatchController extends Controller
                         'transfer_reference' => $data['references'][$item['loan_id']] ?? null,
                         'transferred_on' => $data['effective_date'],
                         'transfer_note' => "Bank checklist $batch",
+                        'net_transfer' => $data['net_transfers'][$item['loan_id']] ?? null,
                     ], $actor, $item['member_id'], $item['loan_id'], $batch);
                 } else {
                     if (DB::table('loan_repayment_receipts')->where('loan_application_id', $item['loan_id'])

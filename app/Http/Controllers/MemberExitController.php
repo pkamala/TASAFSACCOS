@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\MemberExitSettlement;
 use App\Models\User;
 use App\TablePage;
 use Carbon\CarbonImmutable;
@@ -17,7 +18,9 @@ class MemberExitController extends Controller
     public function index(): View
     {
         $exits = DB::table('member_exits as exit')->join('members as member', 'member.id', '=', 'exit.member_id')
-            ->orderByDesc('exit.id')->simplePaginate(TablePage::size(), [
+            ->orderByDesc('exit.id')
+            ->tap(TablePage::search(['exit.id', 'exit.status', 'exit.requested_at', 'member.registration_no', 'member.first_name', 'member.last_name']))
+            ->paginate(TablePage::size(), [
                 'exit.id', 'exit.status', 'exit.requested_at', 'member.registration_no', 'member.first_name', 'member.last_name',
             ]);
 
@@ -50,7 +53,7 @@ class MemberExitController extends Controller
         return redirect()->route('member.account')->with('status', 'Exit request submitted.');
     }
 
-    public function show(int $exit): View
+    public function show(int $exit, MemberExitSettlement $settlements): View
     {
         $record = DB::table('member_exits')->find($exit);
         abort_if($record === null, 404);
@@ -58,7 +61,22 @@ class MemberExitController extends Controller
         $actors = DB::table('users')->whereIn('id', array_filter([$record->requested_by, $record->reviewed_by, $record->finalized_by]))->pluck('name', 'id');
         $openLoans = $this->openLoans($record->member_id)->count();
 
-        return view('staff.member-exits.show', compact('record', 'profile', 'actors', 'openLoans'));
+        $draftDate = CarbonImmutable::today('Africa/Dar_es_Salaam');
+        $draft = in_array($record->status, ['requested', 'approved'], true) ? $settlements->draft($profile->id, $draftDate) : null;
+
+        return view('staff.member-exits.show', compact('record', 'profile', 'actors', 'openLoans', 'draft', 'draftDate'));
+    }
+
+    public function voucher(int $exit, MemberExitSettlement $settlements): View
+    {
+        $record = DB::table('member_exits')->find($exit);
+        abort_if($record === null || ! in_array($record->status, ['approved', 'finalized'], true), 404);
+        $profile = DB::table('members')->find($record->member_id);
+        $snapshot = $record->status === 'finalized'
+            ? json_decode($record->voucher_snapshot ?? 'null', true, flags: JSON_THROW_ON_ERROR)
+            : $this->voucherSnapshot($record->member_id, $settlements);
+
+        return view('staff.member-exits.voucher', compact('record', 'profile', 'snapshot'));
     }
 
     public function review(Request $request, int $exit): RedirectResponse
@@ -88,7 +106,7 @@ class MemberExitController extends Controller
         return back()->with('status', 'Exit decision recorded.');
     }
 
-    public function finalize(Request $request, int $exit): RedirectResponse
+    public function finalize(Request $request, int $exit, MemberExitSettlement $settlements): RedirectResponse
     {
         $data = $request->validate([
             'effective_on' => ['required', 'date_format:Y-m-d', 'before_or_equal:'.now('Africa/Dar_es_Salaam')->toDateString()],
@@ -96,7 +114,7 @@ class MemberExitController extends Controller
             'legacy_clearance_reference' => ['nullable', 'string', 'max:500'],
         ]);
 
-        DB::transaction(function () use ($request, $exit, $data): void {
+        DB::transaction(function () use ($request, $exit, $data, $settlements): void {
             DB::selectOne('SELECT pg_advisory_xact_lock(hashtext(?))', ['board-roles']);
             $initial = DB::table('member_exits')->find($exit);
             abort_if($initial === null, 404);
@@ -122,20 +140,23 @@ class MemberExitController extends Controller
 
             $now = now();
             DB::table('member_exits')->where('id', $exit)->update([
-                'status' => 'finalized', 'finalized_by' => $request->user()->id, 'finalized_at' => $now, ...$data,
+                'status' => 'finalized', 'finalized_by' => $request->user()->id, 'finalized_at' => $now,
+                'voucher_snapshot' => ($snapshot = $this->voucherSnapshot($profile->id, $settlements)) === null
+                    ? null : json_encode($snapshot, JSON_THROW_ON_ERROR),
+                ...$data,
             ]);
-            DB::table('members')->where('id', $profile->id)->update(['status' => 'exited', 'updated_at' => $now]);
-            $officer = User::query()->where('member_id', $profile->id)->first();
-            if ($officer?->isBoardOfficer()) {
-                DB::table('board_role_changes')->insert([
-                    'role' => $officer->board_role, 'previous_user_id' => $officer->id,
-                    'changed_by' => $request->user()->id, 'reason' => "Member exit $exit finalized", 'changed_at' => $now,
-                ]);
-                DB::table('users')->where('id', $officer->id)->update(['board_role' => null, 'updated_at' => $now]);
-            }
+            $settlements->deactivateMember($profile->id, $exit, $request->user()->id);
         }, 3);
 
         return back()->with('status', 'Exit finalized and membership deactivated.');
+    }
+
+    private function voucherSnapshot(int $member, MemberExitSettlement $settlements): ?array
+    {
+        $today = CarbonImmutable::today('Africa/Dar_es_Salaam');
+        $amounts = $settlements->draft($member, $today);
+
+        return $amounts === null ? null : ['calculated_on' => $today->toDateString(), 'amounts' => $amounts];
     }
 
     private function requestExit(Request $request, int $member): int

@@ -34,7 +34,7 @@ class CutoverChecklistController extends Controller
         }
         $receivableMinor = $selected === [] ? null : (int) $opening->only($selected)->sum('signed_minor');
 
-        $openingMemberBalances = DB::table('member_verified_balances')->where('as_of', $asOf)
+        $openingMemberBalances = DB::table('member_verified_balances')->whereNull('superseded_by_id')->where('as_of', $asOf)
             ->selectRaw('DISTINCT ON (member_id) member_id, savings_minor, shares_minor')->orderBy('member_id')->orderByDesc('id');
         $members = DB::table('members as member')->leftJoinSub($openingMemberBalances, 'balance', 'balance.member_id', '=', 'member.id')
             ->selectRaw("count(*) FILTER (WHERE member.status = 'active') AS active_members,
@@ -71,7 +71,8 @@ SQL, [$asOf]);
             ->select('staged.source_id', 'member.id as member_id', 'member.registration_no', 'verified.principal_minor')
             ->selectRaw("staged.data->>'loan_code' AS reference")
             ->orderBy('member.registration_no')->orderBy('staged.source_id')
-            ->simplePaginate(TablePage::size())->withQueryString();
+            ->tap(TablePage::search(['staged.source_id', 'staged.data->loan_code', 'member.registration_no']))
+            ->paginate(TablePage::size())->withQueryString();
 
         return view('staff.cutover-checklist', compact('journal', 'asOf', 'opening', 'selected', 'receivableMinor', 'members', 'totals', 'exceptions'));
     }

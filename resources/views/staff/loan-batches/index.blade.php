@@ -16,7 +16,7 @@
             <thead><tr><th scope="col">List</th><th scope="col">Workflow</th><th scope="col">Month</th><th scope="col">Status</th></tr></thead>
             <tbody>
                 @forelse ($batches as $batch)
-                    <tr><th scope="row"><a href="{{ route('staff.loan-batches.show', $batch->id) }}">{{ $batch->id }}</a></th><td>{{ ucfirst($batch->kind) }}</td><td>{{ $batch->period ? substr($batch->period, 0, 7) : '—' }}</td><td>{{ ucfirst($batch->status) }}</td></tr>
+                    <tr><th scope="row"><a href="{{ route('staff.loan-batches.show', $batch->id) }}">{{ $batch->id }}</a></th><td>{{ $batch->kind === 'savings_payment' ? 'Savings-funded repayment' : ucfirst($batch->kind) }}</td><td>{{ $batch->period ? substr($batch->period, 0, 7) : '—' }}</td><td>{{ ucfirst($batch->status) }}</td></tr>
                 @empty
                     <tr><td colspan="4">No payment lists prepared.</td></tr>
                 @endforelse

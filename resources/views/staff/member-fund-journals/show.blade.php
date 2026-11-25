@@ -21,13 +21,32 @@
     @if (session('status'))<p role="status">{{ session('status') }}</p>@endif
     @include('form-errors')
 
+    @if (in_array($record->kind, ['deposit_interest', 'savings_interest'], true))<p>{{ $record->note }}</p>@endif
     @unless ($posting)
+        @php
+            $debitLabel = match ($record->kind) {
+                'deposit_interest' => 'Deposit interest expense',
+                'savings_interest' => 'Savings interest expense',
+                default => 'Cash or bank',
+            };
+            $fundLabel = match ($record->kind) {
+                'share_purchase' => 'Share account',
+                'member_deposit', 'deposit_interest' => 'Member deposit account',
+                default => 'Savings account',
+            };
+        @endphp
         <section class="panel admin-profile print-hide">
             <h2>Posting accounts</h2>
-            <p>Choose the cash or bank account and the {{ $record->kind === 'share_purchase' ? 'share' : 'savings' }} account approved by finance. Use the name and legacy ID to distinguish shared account codes.</p>
+            <p>Choose the posting accounts approved by finance. Use the name and legacy ID to distinguish shared account codes.</p>
             <form method="POST" action="{{ route('staff.member-fund-journals.preview', $record->id) }}" class="fields">
                 @csrf
-                @foreach (['cash_account' => ['Cash or bank', 'cash'], 'member_account' => [$record->kind === 'share_purchase' ? 'Share account' : 'Savings account', 'fund']] as $field => [$label, $key])
+                @php
+                    $postingFields = ['cash_account' => [$debitLabel, 'cash'], 'member_account' => [$fundLabel, 'fund']];
+                    if ($record->withholding_minor > 0) {
+                        $postingFields['withholding_account'] = ['Withholding payable account', 'withholding'];
+                    }
+                @endphp
+                @foreach ($postingFields as $field => [$label, $key])
                     @php($selected = old($field, $preview[$key] ?? ''))
                     <label for="{{ $field }}">{{ $label }}</label>
                     <select id="{{ $field }}" name="{{ $field }}" required>
@@ -52,7 +71,13 @@
                 <thead><tr><th scope="col">Account</th><th scope="col" class="money">Debit (TZS)</th><th scope="col" class="money">Credit (TZS)</th></tr></thead>
                 <tbody>
                     <tr><th scope="row">{{ $debit->code }} · {{ $debit->name }} · {{ $debit->legacy_id ? 'Legacy ID '.$debit->legacy_id : 'Account ID '.$debit->id }}</th><td class="money">{{ number_format($journal->amount_minor / 100, 2) }}</td><td class="money">—</td></tr>
-                    <tr><th scope="row">{{ $credit->code }} · {{ $credit->name }} · {{ $credit->legacy_id ? 'Legacy ID '.$credit->legacy_id : 'Account ID '.$credit->id }}</th><td class="money">—</td><td class="money">{{ number_format($journal->amount_minor / 100, 2) }}</td></tr>
+                    @if ($journal->amount_minor > $journal->withholding_minor)
+                        <tr><th scope="row">{{ $credit->code }} · {{ $credit->name }} · {{ $credit->legacy_id ? 'Legacy ID '.$credit->legacy_id : 'Account ID '.$credit->id }}</th><td class="money">—</td><td class="money">{{ number_format(($journal->amount_minor - $journal->withholding_minor) / 100, 2) }}</td></tr>
+                    @endif
+                    @if ($journal->withholding_minor > 0)
+                        @php($withholding = $accounts->get($journal->withholding_account_id))
+                        <tr><th scope="row">{{ $withholding->code }} · {{ $withholding->name }} · {{ $withholding->legacy_id ? 'Legacy ID '.$withholding->legacy_id : 'Account ID '.$withholding->id }}</th><td class="money">—</td><td class="money">{{ number_format($journal->withholding_minor / 100, 2) }}</td></tr>
+                    @endif
                 </tbody>
             </table></div>
             @if ($preview)

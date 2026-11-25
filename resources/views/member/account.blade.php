@@ -12,6 +12,16 @@
     </div>
     @if (session('status'))<p role="status">{{ session('status') }}</p>@endif
     @include('form-errors')
+    @if ($nextAgm)
+        <section class="panel stacked-panel" aria-labelledby="agm-heading">
+            <h2 id="agm-heading">{{ $nextAgm->title }}</h2>
+            <p>{{ $nextAgm->venue }} · {{ \Carbon\CarbonImmutable::parse($nextAgm->starts_at)->setTimezone('Africa/Dar_es_Salaam')->format('d M Y H:i') }} EAT</p>
+            <form method="POST" action="{{ route('member.agm.register', $nextAgm->id) }}">
+                @csrf
+                <button class="primary" aria-label="Register for {{ $nextAgm->title }}">Register for AGM</button>
+            </form>
+        </section>
+    @endif
     @if ($sponsorships->isNotEmpty() || $sponsorships->currentPage() > 1)
         <section class="panel stacked-panel" aria-labelledby="sponsorships-heading">
             <h2 id="sponsorships-heading">Loan sponsorships</h2>

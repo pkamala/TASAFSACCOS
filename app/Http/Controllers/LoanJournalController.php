@@ -23,7 +23,9 @@ class LoanJournalController extends Controller
         $postings = DB::table('loan_journal_postings as posting')
             ->join('loan_batches as batch', 'batch.id', '=', 'posting.loan_batch_id')
             ->join('users as actor', 'actor.id', '=', 'posting.posted_by')
-            ->orderByDesc('posting.id')->simplePaginate(TablePage::size(), [
+            ->orderByDesc('posting.id')
+            ->tap(TablePage::search(['posting.id', 'batch.id', 'batch.kind', 'posting.posted_at', 'actor.name']))
+            ->paginate(TablePage::size(), [
                 'posting.id', 'posting.loan_batch_id', 'posting.posted_at',
                 'batch.kind', 'batch.effective_date', 'actor.name as actor',
             ]);
@@ -53,7 +55,11 @@ class LoanJournalController extends Controller
 
         $defaults = $record->kind === 'repayment' ? $postingAccounts->defaults($accounts) : [];
 
-        return view('staff.loan-journals.show', compact('defaults', 'reversalId', 'record', 'posting', 'accounts', 'offset', 'preview', 'lines'));
+        $topUpInterest = $record->kind === 'disbursement' && DB::table('loan_repayment_receipts as receipt')
+            ->join('loan_repayment_allocations as allocation', 'allocation.loan_repayment_receipt_id', '=', 'receipt.id')
+            ->where('receipt.loan_batch_id', $batch)->where('allocation.interest_minor', '>', 0)->exists();
+
+        return view('staff.loan-journals.show', compact('defaults', 'reversalId', 'record', 'posting', 'accounts', 'offset', 'preview', 'lines', 'topUpInterest'));
     }
 
     public function preview(Request $request, int $batch): RedirectResponse
@@ -67,11 +73,13 @@ class LoanJournalController extends Controller
             'cash_account' => ['required', 'integer', 'min:1'],
             'principal_account' => ['required', 'integer', 'min:1'],
             'offset_account' => ['nullable', 'integer', 'min:1'],
+            'top_up_interest_account' => ['nullable', 'integer', 'min:1'],
         ]);
         $accounts = [
             'cash' => (int) $data['cash_account'],
             'principal' => (int) $data['principal_account'],
             'offset' => isset($data['offset_account']) ? (int) $data['offset_account'] : null,
+            'top_up_interest' => isset($data['top_up_interest_account']) ? (int) $data['top_up_interest_account'] : null,
         ];
         $lines = $this->posting->loanLines($record, $accounts);
         $request->session()->put('loan_journal_preview', [
@@ -113,7 +121,7 @@ class LoanJournalController extends Controller
 
     private function confirmedBatch(int $batch): stdClass
     {
-        $record = DB::table('loan_batches')->where('status', 'confirmed')->find($batch);
+        $record = DB::table('loan_batches')->where('status', 'confirmed')->where('kind', '<>', 'exit_settlement')->find($batch);
         abort_if($record === null, 404);
 
         return $record;

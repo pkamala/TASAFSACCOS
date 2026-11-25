@@ -89,7 +89,9 @@ class CombinedPayrollTest extends TestCase
         $this->assertDatabaseHas('member_fund_transactions', ['loan_batch_id' => $batch, 'kind' => 'share_purchase', 'signed_minor' => 1000]);
         $this->assertDatabaseHas('loan_batches', ['id' => $batch, 'status' => 'confirmed']);
         $this->assertSame(105025, app(MemberFunds::class)->balances($member)['savings']);
-        $this->get($url)->assertOk()->assertSee('Confirmed savings and share transactions')->assertDontSee('View or prepare loan journal');
+        $savingsTransaction = DB::table('member_fund_transactions')->where('loan_batch_id', $batch)->where('kind', 'savings_deposit')->sole()->id;
+        $this->get($url)->assertOk()->assertSee("/staff/member-fund-journals/$savingsTransaction")
+            ->assertSee('View savings journal for 10415')->assertDontSee('View or prepare loan journal');
         $this->get($url)->assertSee('Review and post payment list journals');
 
         $journalUrl = "$url/journals";
@@ -112,6 +114,21 @@ class CombinedPayrollTest extends TestCase
         $this->get($journalUrl)->assertOk()->assertSee('Journal preview')->assertSee('Post all journals');
         $this->assertDatabaseEmpty('loan_journal_postings');
         $this->assertDatabaseEmpty('member_fund_journals');
+
+        $deduction = DB::table('payroll_loan_reconciliations')->insertGetId([
+            'payroll_month' => '2026-11-01', 'source_file' => 'November payroll.xlsx',
+            'source_sha256' => str_repeat('a', 64), 'source_row' => 7, 'loan_slot' => 1,
+            'member_name' => 'Asha Mushi', 'member_id' => $member, 'total_minor' => 10000,
+            'principal_minor' => 9000, 'interest_minor' => 1000,
+        ]);
+        $reconciliation = '/staff/payroll-loan-reconciliation';
+        $receiptMatch = ['registration_no' => '10415', 'loan_id' => $loan, 'receipt_reference' => 'NOV-PAYROLL'];
+        $this->get($url)->assertOk()->assertSee('Confirmed shares (TZS)')
+            ->assertViewHas('payrollTotals', ['savings' => 5025, 'shares' => 1000, 'loans' => 10000])
+            ->assertSee('1 loan deduction awaiting reconciliation')
+            ->assertSee('/staff/payroll-loan-reconciliation?month=2026-11');
+        $this->get("$reconciliation?month=2026-11")->assertOk()->assertSee('November payroll.xlsx')->assertSee('Row 7');
+        $this->from($reconciliation)->patch("$reconciliation/$deduction", $receiptMatch)->assertSessionHasErrors('receipt_reference');
 
         DB::table('ledger_period_events')->insert([
             'period' => '2026-11-01', 'action' => 'closed', 'recorded_by' => $admin->id, 'recorded_at' => now(), 'reason' => 'Month end',
@@ -138,6 +155,15 @@ class CombinedPayrollTest extends TestCase
         $this->assertDatabaseCount('member_fund_journals', 2);
         $this->get($journalUrl)->assertOk()->assertSee('No outstanding journals.');
 
+        $this->get("/staff/members/$member/funds")->assertOk()
+            ->assertSee('Verified opening balance')->assertSee('Posted payroll contributions')
+            ->assertViewHas('payroll', fn ($totals): bool => (int) $totals->savings === 5025 && (int) $totals->shares === 1000);
+        $this->from($reconciliation)->patch("$reconciliation/$deduction", $receiptMatch)->assertRedirect($reconciliation);
+        $this->assertDatabaseHas('payroll_loan_reconciliations', [
+            'id' => $deduction, 'reconciled_by' => $admin->id,
+            'receipt_id' => DB::table('loan_repayment_receipts')->where('loan_batch_id', $batch)->sole()->id,
+        ]);
+        $this->get("$reconciliation?status=reconciled")->assertOk()->assertSee('NOV-PAYROLL');
     }
 
     public function test_payroll_requires_verified_opening_balances_for_configured_contributors(): void

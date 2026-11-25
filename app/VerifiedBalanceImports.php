@@ -80,7 +80,7 @@ class VerifiedBalanceImports
             ->when($lock, fn ($query) => $query->lockForUpdate())
             ->get(['id', 'registration_no', 'legacy_member_id', 'first_name', 'last_name'])->keyBy('registration_no');
         $ids = $members->pluck('id');
-        $current = DB::table('member_verified_balances')->whereIn('member_id', $ids)
+        $current = DB::table('member_verified_balances')->whereNull('superseded_by_id')->whereIn('member_id', $ids)
             ->selectRaw('DISTINCT ON (member_id) member_id, id, as_of, savings_minor, shares_minor, evidence_reference')
             ->orderBy('member_id')->orderByDesc('as_of')->orderByDesc('id')->get()->keyBy('member_id');
         $locked = DB::table('member_fund_transactions')->whereIn('member_id', $ids)->select('member_id')

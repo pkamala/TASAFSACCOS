@@ -98,6 +98,6 @@
                 </tbody>
             </table>
         </div>
-        {{ $history->links() }}
+        @include('staff.pagination', ['page' => $history])
     </section>
 @endsection

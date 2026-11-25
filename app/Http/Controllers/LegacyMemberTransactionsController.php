@@ -37,7 +37,9 @@ class LegacyMemberTransactionsController extends Controller
             $rows->orderByRaw("data->>'date' DESC NULLS LAST");
         }
 
-        $transactions = $rows->orderByDesc('source_id')->simplePaginate(TablePage::size())->appends(['section' => $section])
+        $transactions = $rows->orderByDesc('source_id')
+            ->tap(TablePage::search(['source_id', 'data->date', 'data->description', 'data->payment_id', 'data->monthly_id', 'data->year', 'data->month', 'data->status']))
+            ->paginate(TablePage::size())->appends(['section' => $section])
             ->through(fn ($row): array => [
                 'id' => $row->source_id,
                 'data' => json_decode($row->data, true, flags: JSON_THROW_ON_ERROR),

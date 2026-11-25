@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\JournalPosting;
 use App\LedgerPeriods;
 use App\TablePage;
 use Illuminate\Database\Query\Builder;
@@ -19,7 +20,9 @@ class GeneralJournalController extends Controller
     public function index(): View
     {
         $rows = DB::table('general_journals as journal')->join('users', 'users.id', '=', 'journal.posted_by')
-            ->orderByDesc('journal.id')->simplePaginate(TablePage::size(), ['journal.id', 'journal.transaction_date', 'journal.category', 'journal.source_reference', 'users.name as actor']);
+            ->orderByDesc('journal.id')
+            ->tap(TablePage::search(['journal.id', 'journal.transaction_date', 'journal.category', 'journal.source_reference', 'users.name']))
+            ->paginate(TablePage::size(), ['journal.id', 'journal.transaction_date', 'journal.category', 'journal.source_reference', 'users.name as actor']);
 
         return view('staff.general-journals.index', compact('rows'));
     }
@@ -95,14 +98,14 @@ class GeneralJournalController extends Controller
         return redirect()->route($cashBook ? 'staff.cash-book.transactions.create' : 'staff.general-journals.create')->withFragment('journal-preview');
     }
 
-    public function post(Request $request): RedirectResponse
+    public function post(Request $request, JournalPosting $posting): RedirectResponse
     {
         $token = $request->validate(['token' => ['required', 'uuid']])['token'];
         $actor = $request->user()->id;
         $cashBook = $request->routeIs('staff.cash-book.transactions.*');
         $previewKey = $this->previewKey($cashBook);
         $preview = $request->session()->get($previewKey);
-        $id = DB::transaction(function () use ($token, $actor, $preview, $cashBook): int {
+        $id = DB::transaction(function () use ($token, $actor, $preview, $cashBook, $posting): int {
             DB::selectOne('SELECT pg_advisory_xact_lock(hashtext(?))', ['general-journal:'.$token]);
             $existing = DB::table('general_journals')->where('preview_token', $token)->where('posted_by', $actor)->value('id');
             if ($existing !== null) {
@@ -115,16 +118,7 @@ class GeneralJournalController extends Controller
             $this->checkAccounts(array_column($preview['lines'], 'chart_account_id'), $cashBook);
             $this->periods->requireOpenDates([$preview['journal']['transaction_date']], 'transaction_date');
 
-            $id = DB::table('general_journals')->insertGetId([
-                ...$preview['journal'], 'preview_token' => $token, 'line_count' => count($preview['lines']),
-                'posted_by' => $actor, 'posted_at' => now(),
-            ]);
-            DB::table('general_journal_lines')->insert(array_map(
-                fn (array $line): array => [...$line, 'general_journal_id' => $id],
-                $preview['lines'],
-            ));
-
-            return $id;
+            return $posting->writeGeneral($actor, $token, $preview['journal'], $preview['lines']);
         }, 3);
         if (($preview['token'] ?? null) === $token) {
             $request->session()->forget($previewKey);
@@ -135,6 +129,16 @@ class GeneralJournalController extends Controller
 
     public function show(int $journal): View
     {
+        return $this->postedJournal($journal, 'show');
+    }
+
+    public function voucher(int $journal): View
+    {
+        return $this->postedJournal($journal, 'voucher');
+    }
+
+    private function postedJournal(int $journal, string $view): View
+    {
         $record = DB::table('general_journals as journal')->join('users', 'users.id', '=', 'journal.posted_by')
             ->where('journal.id', $journal)->first(['journal.id', 'journal.transaction_date', 'journal.category',
                 'journal.source_reference', 'journal.description', 'journal.posted_at', 'users.name as actor']);
@@ -143,7 +147,10 @@ class GeneralJournalController extends Controller
             ->where('line.general_journal_id', $journal)->orderBy('line.id')
             ->get(['line.chart_account_id', 'line.signed_minor', 'account.code', 'account.name']);
 
-        return view('staff.general-journals.show', compact('record', 'lines'));
+        $reversed = DB::table('ledger_journal_reversals')->where('general_journal_id', $journal)->exists();
+        $exitSettlement = DB::table('member_exits')->where('settlement_journal_id', $journal)->exists();
+
+        return view('staff.general-journals.'.$view, compact('record', 'lines', 'reversed', 'exitSettlement'));
     }
 
     private function activeAccounts(): Builder
