@@ -10,6 +10,7 @@ use App\Http\Controllers\BrandingController;
 use App\Http\Controllers\BudgetController;
 use App\Http\Controllers\BudgetImportController;
 use App\Http\Controllers\CashBookController;
+use App\Http\Controllers\CashBookReviewController;
 use App\Http\Controllers\ChartAccountManagementController;
 use App\Http\Controllers\ChartAccountTransferController;
 use App\Http\Controllers\ChartOfAccountsController;
@@ -143,6 +144,10 @@ Route::prefix('staff')->name('staff.')->middleware(['auth', 'auth.session', 'can
     Route::get('/member-fund-journals/{transaction}', [MemberFundJournalController::class, 'show'])->whereNumber('transaction')->name('member-fund-journals.show');
     Route::post('/member-fund-journals/{transaction}/preview', [MemberFundJournalController::class, 'preview'])->whereNumber('transaction')->name('member-fund-journals.preview');
     Route::post('/member-fund-journals/{transaction}/post', [MemberFundJournalController::class, 'post'])->whereNumber('transaction')->name('member-fund-journals.post');
+    Route::get('/cash-book-review', [CashBookReviewController::class, 'index'])->name('cash-book-review.index');
+    Route::post('/cash-book-review/post', [CashBookReviewController::class, 'post'])->name('cash-book-review.post');
+    Route::get('/cash-book-review/{entry}', [CashBookReviewController::class, 'show'])->whereNumber('entry')->name('cash-book-review.show');
+    Route::patch('/cash-book-review/{entry}', [CashBookReviewController::class, 'review'])->whereNumber('entry')->name('cash-book-review.review');
     Route::get('/bank-reconciliation', [BankReconciliationController::class, 'index'])->name('bank-reconciliation.index');
     Route::post('/bank-reconciliation', [BankReconciliationController::class, 'store'])->name('bank-reconciliation.store');
     Route::get('/cash-book', [CashBookController::class, 'index'])->name('cash-book.index');

@@ -79,6 +79,7 @@
                             @include('nav-link', ['destination' => 'staff.cutover-checklist', 'label' => 'Cutover checklist'])
                             @include('nav-link', ['destination' => 'staff.payroll-corrections.index', 'label' => 'Payroll corrections'])
                             @include('nav-link', ['destination' => 'staff.payroll-loan-reconciliation.index', 'label' => 'Payroll loan reconciliation'])
+                            @include('nav-link', ['destination' => 'staff.cash-book-review.index', 'label' => 'Cashbook review'])
                             @include('nav-link', ['destination' => 'staff.bank-reconciliation.index', 'label' => 'Bank reconciliation'])
                         </div>
                     </details>
