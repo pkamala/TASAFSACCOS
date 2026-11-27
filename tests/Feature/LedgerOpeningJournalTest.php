@@ -64,7 +64,9 @@ class LedgerOpeningJournalTest extends TestCase
         $this->get('/staff/loan-ledger?from=2026-10-31&to=2026-10-31')->assertOk()->assertSee('No posted journal activity');
 
         $funds = "/staff/members/$member/funds";
-        $deposit = ['kind' => 'savings_deposit', 'amount' => '25', 'reference' => 'NEW-001', 'effective_on' => '2026-10-31'];
+        $bank = DB::table('chart_accounts')->where('legacy_id', 1)->value('id');
+        DB::table('cash_book_accounts')->insertOrIgnore(['chart_account_id' => $bank]);
+        $deposit = ['receiving_account_id' => $bank, 'kind' => 'savings_deposit', 'amount' => '25', 'reference' => 'NEW-001', 'effective_on' => '2026-10-31'];
         $this->from($funds)->post($funds, $deposit)->assertSessionHasErrors('effective_on');
         $this->post($funds, [...$deposit, 'effective_on' => '2026-11-01'])->assertRedirect($funds);
         $this->assertDatabaseHas('member_fund_transactions', ['reference' => 'NEW-001', 'effective_on' => '2026-11-01']);

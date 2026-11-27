@@ -30,6 +30,13 @@
                 </select>
                 <label for="amount">Amount (TZS)</label>
                 <input id="amount" type="number" name="amount" min="0.01" step="0.01" required>
+                <label for="receiving-account">Receiving bank or cash account</label>
+                <select id="receiving-account" name="receiving_account_id" required>
+                    <option value="">Select receiving account</option>
+                    @foreach ($receivingAccounts as $account)
+                        <option value="{{ $account->id }}" @selected((string) old('receiving_account_id') === (string) $account->id)>{{ $account->code }} · {{ $account->name }}</option>
+                    @endforeach
+                </select>
                 @include('staff.savings-withdrawals.receipt-fields', ['referenceLabel' => 'Confirmed receipt reference'])
                 <button class="primary">Record confirmed funds</button>
             </form>
@@ -67,12 +74,12 @@
             </div>
         @endif
         <div class="table-wrap" tabindex="0" role="region" aria-label="Member transactions"><table>
-            <thead><tr><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Reference</th><th scope="col" class="money">Amount (TZS)</th><th scope="col">Recorded by</th><th scope="col">Note</th><th scope="col">Journal</th></tr></thead>
+            <thead><tr><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Reference</th><th scope="col">Receiving account</th><th scope="col" class="money">Amount (TZS)</th><th scope="col">Recorded by</th><th scope="col">Note</th><th scope="col">Journal</th></tr></thead>
             <tbody>
                 @forelse ($history as $row)
-                    <tr><td>{{ $row->effective_on }}</td><th scope="row">{{ ucfirst(str_replace('_', ' ', $row->kind)) }}</th><td>{{ $row->reference }}</td><td class="money">{{ number_format($row->signed_minor / 100, 2) }}</td><td>{{ $row->actor }} · {{ $row->recorded_at }}</td><td>{{ $row->note ?? '—' }}</td><td>@if ($row->settlement_journal_id)<a href="{{ route('staff.general-journals.show', $row->settlement_journal_id) }}">Exit settlement journal</a>@elseif ($row->kind === 'savings_loan_payment')<a href="{{ route('staff.loan-journal.show', $row->loan_batch_id) }}">Loan journal</a>@else<a href="{{ route('staff.member-fund-journals.show', $row->id) }}">{{ $row->journal_id ? 'View posted journal' : 'Prepare journal' }}</a>@endif</td></tr>
+                    <tr><td>{{ $row->effective_on }}</td><th scope="row">{{ ucfirst(str_replace('_', ' ', $row->kind)) }}</th><td>{{ $row->reference }}</td><td>{{ $row->receiving_name ? $row->receiving_code.' · '.$row->receiving_name : '—' }}</td><td class="money">{{ number_format($row->signed_minor / 100, 2) }}</td><td>{{ $row->actor }} · {{ $row->recorded_at }}</td><td>{{ $row->note ?? '—' }}</td><td>@if ($row->settlement_journal_id)<a href="{{ route('staff.general-journals.show', $row->settlement_journal_id) }}">Exit settlement journal</a>@elseif ($row->kind === 'savings_loan_payment')<a href="{{ route('staff.loan-journal.show', $row->loan_batch_id) }}">Loan journal</a>@else<a href="{{ route('staff.member-fund-journals.show', $row->id) }}">{{ $row->journal_id ? 'View posted journal' : 'Prepare journal' }}</a>@endif</td></tr>
                 @empty
-                    <tr><td colspan="7">No confirmed transactions recorded.</td></tr>
+                    <tr><td colspan="8">No confirmed transactions recorded.</td></tr>
                 @endforelse
             </tbody>
         </table></div>

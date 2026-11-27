@@ -24,7 +24,12 @@ class MemberFundsTest extends TestCase
         $reviewer = User::factory()->create(['board_role' => 'secretary']);
         $admin = User::factory()->create(['is_staff_admin' => true]);
         $path = "/staff/members/$member/funds";
-        $deposit = ['kind' => 'savings_deposit', 'amount' => '25000.25', 'reference' => 'receipt-s1', 'effective_on' => '2026-11-22'];
+        $source = ['legacy_source_sha256' => str_repeat('a', 64)];
+        $category = DB::table('account_categories')->insertGetId([...$source, 'legacy_id' => 1, 'name' => 'Assets']);
+        $type = DB::table('account_types')->insertGetId([...$source, 'legacy_id' => 1, 'name' => 'Bank', 'account_category_id' => $category]);
+        $bank = DB::table('chart_accounts')->insertGetId(['code' => '1020', 'name' => 'CRDB', 'account_type_id' => $type, 'is_ledger_account' => true]);
+        DB::table('cash_book_accounts')->insert(['chart_account_id' => $bank, 'is_bank_account' => true]);
+        $deposit = ['receiving_account_id' => $bank, 'kind' => 'savings_deposit', 'amount' => '25000.25', 'reference' => 'receipt-s1', 'effective_on' => '2026-11-22'];
 
         $this->actingAs($owner)->post($path, $deposit)->assertForbidden();
         $this->actingAs($admin)->from($path)->post($path, $deposit)->assertSessionHasErrors('funds');

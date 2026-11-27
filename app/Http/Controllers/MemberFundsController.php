@@ -9,6 +9,7 @@ use App\RecordMemberFundTransaction;
 use App\SavingsInterest;
 use App\TablePage;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -26,10 +27,11 @@ class MemberFundsController extends Controller
         $history = DB::table('member_fund_transactions as transaction')
             ->join('users as recorder', 'recorder.id', '=', 'transaction.recorded_by')
             ->leftJoin('member_fund_journals as journal', 'journal.member_fund_transaction_id', '=', 'transaction.id')
+            ->leftJoin('chart_accounts as receiving', 'receiving.id', '=', 'transaction.receiving_account_id')
             ->leftJoin('member_exits as exit', 'exit.settlement_batch_id', '=', 'transaction.loan_batch_id')
             ->where('transaction.member_id', $member)->orderByDesc('transaction.effective_on')->orderByDesc('transaction.id')
             ->tap(TablePage::search(['transaction.effective_on', 'transaction.kind', 'transaction.reference', 'transaction.note', 'recorder.name']))
-            ->paginate(TablePage::size(), ['transaction.*', 'recorder.name as actor', 'journal.id as journal_id', 'exit.settlement_journal_id']);
+            ->paginate(TablePage::size(), ['transaction.*', 'recorder.name as actor', 'journal.id as journal_id', 'exit.settlement_journal_id', 'receiving.code as receiving_code', 'receiving.name as receiving_name']);
         $payroll = DB::table('member_fund_transactions as transaction')
             ->join('loan_batches as batch', 'batch.id', '=', 'transaction.loan_batch_id')
             ->join('member_fund_journals as journal', 'journal.member_fund_transaction_id', '=', 'transaction.id')
@@ -39,7 +41,9 @@ class MemberFundsController extends Controller
                 coalesce(sum(transaction.signed_minor) FILTER (WHERE transaction.kind = 'share_purchase'), 0) as shares")
             ->first();
 
-        return view('staff.member-funds', ['balances' => $funds->balances($member), ...compact('profile', 'history', 'payroll')]);
+        $receivingAccounts = $this->receivingAccounts()->orderBy('account.code')->get(['account.id', 'account.code', 'account.name']);
+
+        return view('staff.member-funds', ['balances' => $funds->balances($member), ...compact('profile', 'history', 'payroll', 'receivingAccounts')]);
     }
 
     public function deposit(Request $request, int $member, MemberFunds $funds, RecordMemberFundTransaction $transactions): RedirectResponse
@@ -47,6 +51,7 @@ class MemberFundsController extends Controller
         $data = $request->validate([
             'kind' => ['required', 'in:savings_deposit,share_purchase,member_deposit'],
             'amount' => $this->amountRules(),
+            'receiving_account_id' => ['required', 'integer', 'min:1'],
             ...$this->receiptRules(),
         ]);
 
@@ -55,12 +60,18 @@ class MemberFundsController extends Controller
             if ($profile->status !== 'active') {
                 $this->invalid('The membership must be active.');
             }
+            DB::selectOne('SELECT pg_advisory_xact_lock_shared(hashtext(?))', ['chart-accounts']);
+            if (! $this->receivingAccounts()->where('account.id', $data['receiving_account_id'])->exists()) {
+                throw ValidationException::withMessages(['receiving_account_id' => 'Choose an active cashbook account.']);
+            }
+
             $balance = $funds->balances($member);
             $this->checkOpeningDate($balance, $data['effective_on']);
-            $transactions->record($request->user()->id, $member, $balance['opening']->id, $data, $data['kind'], $this->minor($data['amount']));
+            $transactions->record($request->user()->id, $member, $balance['opening']->id, $data, $data['kind'], $this->minor($data['amount']),
+                receivingAccount: (int) $data['receiving_account_id']);
         }, 3);
 
-        return back()->with('status', 'Confirmed contribution recorded.');
+        return back()->with('status', 'Confirmed contribution recorded. Prepare and post its journal to update the cashbook and general ledger.');
     }
 
     public function prepareDepositInterest(Request $request, int $member, MemberFunds $funds, RecordMemberFundTransaction $transactions): RedirectResponse
@@ -327,6 +338,13 @@ class MemberFundsController extends Controller
         if ($balance['opening'] === null || $date < $balance['opening']->as_of) {
             $this->invalid('Record a verified opening balance dated on or before this transaction.');
         }
+    }
+
+    private function receivingAccounts(): Builder
+    {
+        return DB::table('chart_accounts as account')
+            ->join('cash_book_accounts as cash', 'cash.chart_account_id', '=', 'account.id')
+            ->where('account.is_ledger_account', true)->whereNull('account.retired_at');
     }
 
     private function amountRules(): array

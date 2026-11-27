@@ -49,7 +49,8 @@ class LedgerPeriodTest extends TestCase
         $this->get($filter)->assertOk()->assertSee('Reopen month')->assertSee('October reconciled');
         $this->assertDatabaseHas('ledger_period_events', ['period' => '2026-10-01', 'action' => 'closed', 'recorded_by' => $admin->id]);
 
-        $deposit = ['kind' => 'savings_deposit', 'amount' => '25', 'reference' => 'OCT-002', 'effective_on' => '2026-10-31'];
+        DB::table('cash_book_accounts')->insertOrIgnore(['chart_account_id' => $bank]);
+        $deposit = ['receiving_account_id' => $bank, 'kind' => 'savings_deposit', 'amount' => '25', 'reference' => 'OCT-002', 'effective_on' => '2026-10-31'];
         $this->from($filter)->post("/staff/members/$member/funds", $deposit)->assertSessionHasErrors('effective_on');
         $reversal = "/staff/ledger-reversals/member-fund/$journal";
         $this->from($reversal)->post($reversal, ['transaction_date' => '2026-10-31', 'reason' => 'Adjustment'])

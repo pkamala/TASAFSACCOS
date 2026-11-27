@@ -128,6 +128,16 @@ class JournalPosting
 
     public function fundJournal(stdClass $record, int $cash, int $fund, ?int $withholdingAccount = null): array
     {
+        $receivingAccount = $record->receiving_account_id ?? null;
+        if ($receivingAccount !== null) {
+            if (DB::transactionLevel() > 0) {
+                DB::selectOne('SELECT pg_advisory_xact_lock_shared(hashtext(?))', ['chart-accounts']);
+            }
+            if ($cash !== $receivingAccount || ! DB::table('cash_book_accounts')->where('chart_account_id', $receivingAccount)->exists()) {
+                $this->invalid('Use the recorded receiving account configured in the cashbook.');
+            }
+        }
+
         $withholding = $record->withholding_minor ?? 0;
         $accounts = [$cash, $fund];
         if ($withholding > 0) {

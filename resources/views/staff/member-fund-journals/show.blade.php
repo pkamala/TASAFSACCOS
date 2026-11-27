@@ -47,6 +47,14 @@
                     }
                 @endphp
                 @foreach ($postingFields as $field => [$label, $key])
+                    @if ($field === 'cash_account' && $record->receiving_account_id)
+                        @php
+                            $receivingAccount = $accounts->get($record->receiving_account_id);
+                        @endphp
+                        <p>Receiving account · {{ $receivingAccount->code }} · {{ $receivingAccount->name }}</p>
+                        <input type="hidden" name="cash_account" value="{{ $receivingAccount->id }}">
+                        @continue
+                    @endif
                     @php($selected = old($field, $preview[$key] ?? ''))
                     <label for="{{ $field }}">{{ $label }}</label>
                     <select id="{{ $field }}" name="{{ $field }}" required>

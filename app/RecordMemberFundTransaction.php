@@ -10,14 +10,15 @@ class RecordMemberFundTransaction
 {
     public function __construct(private LedgerPeriods $periods) {}
 
-    public function record(int $actor, int $member, int $opening, array $data, string $kind, int $amount, ?int $withdrawal = null, ?int $batch = null, int $withholding = 0): void
+    public function record(int $actor, int $member, int $opening, array $data, string $kind, int $amount, ?int $withdrawal = null, ?int $batch = null, int $withholding = 0, ?int $receivingAccount = null): void
     {
         $reference = Str::upper($data['reference']);
         $existing = DB::table('member_fund_transactions')->where('member_id', $member)
             ->where('kind', $kind)->where('reference', $reference)->first();
         if ($existing !== null) {
             if ($batch === null && $existing->loan_batch_id === null && $existing->signed_minor === $amount && $existing->withholding_minor === $withholding && $existing->effective_on === $data['effective_on']
-                && $existing->note === ($data['note'] ?? null) && $existing->member_savings_withdrawal_id === $withdrawal) {
+                && $existing->note === ($data['note'] ?? null) && $existing->member_savings_withdrawal_id === $withdrawal
+                && $existing->receiving_account_id === $receivingAccount) {
                 return;
             }
 
@@ -44,6 +45,7 @@ class RecordMemberFundTransaction
 
         DB::table('member_fund_transactions')->insert([
             'member_id' => $member, 'member_verified_balance_id' => $opening, 'member_savings_withdrawal_id' => $withdrawal,
+            'receiving_account_id' => $receivingAccount,
             'kind' => $kind, 'signed_minor' => $amount, 'effective_on' => $data['effective_on'], 'reference' => $reference,
             'note' => $data['note'] ?? null, 'withholding_minor' => $withholding, 'loan_batch_id' => $batch, 'recorded_by' => $actor, 'recorded_at' => now(),
         ]);

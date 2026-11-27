@@ -36,9 +36,6 @@ class MemberFundJournalTest extends TestCase
             'member_id' => $member, 'member_verified_balance_id' => $opening, 'effective_on' => '2026-11-22',
             'recorded_by' => $admin->id, 'recorded_at' => now(),
         ];
-        $depositId = DB::table('member_fund_transactions')->insertGetId([
-            ...$record, 'kind' => 'savings_deposit', 'signed_minor' => 50000, 'reference' => 'DEPOSIT-001',
-        ]);
         $purchaseId = DB::table('member_fund_transactions')->insertGetId([
             ...$record, 'kind' => 'share_purchase', 'signed_minor' => 10000, 'reference' => 'SHARE-001',
         ]);
@@ -47,13 +44,27 @@ class MemberFundJournalTest extends TestCase
             'member_savings_withdrawal_id' => $withdrawal,
         ]);
         [$cash, $savings, $shares] = $this->accounts();
+        DB::table('cash_book_accounts')->insert(['chart_account_id' => $cash, 'is_bank_account' => true]);
+        $funds = "/staff/members/$member/funds";
+        $receipt = [
+            'kind' => 'savings_deposit', 'effective_on' => '2026-11-22', 'amount' => '500.00', 'reference' => 'DEPOSIT-001',
+        ];
         $path = '/staff/member-fund-journals';
+        $this->get("$path/$purchaseId")->assertRedirect('/staff/login');
+        $this->actingAs(User::factory()->create())->get("$path/$purchaseId")->assertForbidden();
+        $this->actingAs($admin)->get($funds)->assertOk()->assertSee('Receiving bank or cash account');
+        $this->from($funds)->post($funds, $receipt)->assertSessionHasErrors('receiving_account_id');
+        $this->post($funds, [...$receipt, 'receiving_account_id' => $shares])->assertSessionHasErrors('receiving_account_id');
+        $this->post($funds, [...$receipt, 'receiving_account_id' => $cash])->assertRedirect($funds);
+        $deposit = DB::table('member_fund_transactions')->where('reference', 'DEPOSIT-001')->sole();
+        $this->assertSame($cash, $deposit->receiving_account_id);
+        $depositId = $deposit->id;
 
-        $this->get("$path/$depositId")->assertRedirect('/staff/login');
-        $this->actingAs(User::factory()->create())->get("$path/$depositId")->assertForbidden();
-        $this->actingAs($admin)->from("$path/$depositId")->post("$path/$depositId/preview", [
+        $this->from("$path/$depositId")->post("$path/$depositId/preview", [
             'cash_account' => $cash, 'member_account' => $cash,
         ])->assertSessionHasErrors('member_account');
+        $this->get("$path/$depositId")->assertOk()->assertSee('Receiving account');
+        $this->post("$path/$depositId/preview", ['cash_account' => $shares, 'member_account' => $savings])->assertSessionHasErrors('journal');
         $this->post("$path/$depositId/preview", ['cash_account' => $cash, 'member_account' => $savings])->assertRedirect("$path/$depositId");
         $token = session('member_fund_journal_preview.token');
         $this->assertDatabaseEmpty('member_fund_journals');
@@ -76,6 +87,9 @@ class MemberFundJournalTest extends TestCase
                 'opening_debit' => 0, 'opening_credit' => 0, 'debit' => 85000,
                 'credit' => 85000, 'closing_debit' => 35000, 'closing_credit' => 35000,
             ]);
+        $this->get('/staff/cash-book?from=2026-11-01&to=2026-11-22')->assertOk()
+            ->assertViewHas('totals', fn (array $totals): bool => $totals['receipts_minor'] === 60000
+                && $totals['payments_minor'] === 25000);
         $this->get("/staff/loan-ledger/accounts/$cash")->assertOk()
             ->assertSee('350.00 Dr')->assertSee('PAYOUT-001')->assertSee("$path/$payoutId");
     }
@@ -92,10 +106,11 @@ class MemberFundJournalTest extends TestCase
             'member_id' => $member, 'as_of' => '2026-09-01', 'savings_minor' => 0, 'shares_minor' => 0,
             'evidence_reference' => 'Verified balance', 'recorded_by' => $admin->id, 'recorded_at' => now(),
         ]);
-        [$expense, $deposits] = $this->accounts(['Deposit interest expense', 'Member deposits', 'Shares']);
+        [$expense, $deposits, $bank] = $this->accounts(['Deposit interest expense', 'Member deposits', 'Bank']);
+        DB::table('cash_book_accounts')->insert(['chart_account_id' => $bank, 'is_bank_account' => true]);
         $funds = "/staff/members/$member/funds";
         $prepare = "$funds/deposit-interest";
-        $receipt = ['kind' => 'member_deposit', 'amount' => '50000000', 'reference' => 'DEP-SEP', 'effective_on' => '2026-09-30'];
+        $receipt = ['receiving_account_id' => $bank, 'kind' => 'member_deposit', 'amount' => '50000000', 'reference' => 'DEP-SEP', 'effective_on' => '2026-09-30'];
 
         $this->actingAs($admin)->from($funds)->post($funds, $receipt)->assertSessionHasNoErrors()->assertRedirect($funds);
         $this->post($funds, [...$receipt, 'amount' => '1', 'reference' => 'DEP-OCT', 'effective_on' => '2026-10-01'])
@@ -137,7 +152,8 @@ class MemberFundJournalTest extends TestCase
             'member_id' => $member, 'as_of' => '2026-09-01', 'savings_minor' => 1000000, 'shares_minor' => 0,
             'evidence_reference' => 'Verified balance', 'recorded_by' => $admin->id, 'recorded_at' => now(),
         ]);
-        [$expense, $savings, $tax] = $this->accounts(['Savings interest expense', 'Member savings', 'Withholding payable']);
+        [$expense, $savings, $tax, $bank] = $this->accounts(['Savings interest expense', 'Member savings', 'Withholding payable', 'Bank']);
+        DB::table('cash_book_accounts')->insert(['chart_account_id' => $bank, 'is_bank_account' => true]);
         $funds = "/staff/members/$member/funds";
         $prepare = "$funds/savings-interest";
         $september = ['savings_month' => '2026-09'];
@@ -158,7 +174,7 @@ class MemberFundJournalTest extends TestCase
         $this->assertSame(10000, $settlement->draft($member, $today)['interest']['gross']);
         $this->post($prepare, $september)->assertRedirect($journal);
         $this->from($funds)->post($funds, [
-            'kind' => 'savings_deposit', 'amount' => '50', 'reference' => 'BACKDATED', 'effective_on' => '2026-09-30',
+            'receiving_account_id' => $bank, 'kind' => 'savings_deposit', 'amount' => '50', 'reference' => 'BACKDATED', 'effective_on' => '2026-09-30',
         ])->assertSessionHasErrors('effective_on');
 
         $this->get($journal)->assertOk()->assertSee('Savings interest expense')->assertSee('Withholding payable account');
@@ -197,6 +213,6 @@ class MemberFundJournalTest extends TestCase
 
         return array_map(fn (string $name, int $id): int => DB::table('chart_accounts')->insertGetId([
             ...$source, 'legacy_id' => $id, 'account_type_id' => $type, 'code' => (string) $id, 'name' => $name, 'is_ledger_account' => true,
-        ]), $names, [1, 2, 3]);
+        ]), $names, range(1, count($names)));
     }
 }
