@@ -27,31 +27,65 @@
                 <table>
                     <thead>
                         <tr>
-                            <th scope="col">Account</th><th scope="col" class="money">Opening debit</th><th scope="col" class="money">Opening credit</th>
-                            <th scope="col" class="money">Journal debits</th><th scope="col" class="money">Journal credits</th>
-                            <th scope="col" class="money">Preview debit</th><th scope="col" class="money">Preview credit</th>
+                            <th scope="col">Account code</th>
+                            <th scope="col">Description</th>
+                            <th scope="col" class="money">DR</th>
+                            <th scope="col" class="money">CR</th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach ($lines as $line)
                             <tr>
-                                <th scope="row">
-                                    @if ($line['code']){{ $line['code'] }} · @endif{{ $line['name'] }}
-                                    @if ($line['unmapped']) <small>· Needs mapping</small>@endif
-                                </th>
-                                @foreach (array_keys($totals) as $column)
-                                    <td class="money">{{ $money($line[$column]) }}</td>
-                                @endforeach
+                                <td>{{ $line['code'] ?? '—' }}</td>
+                                <th scope="row">{{ $line['name'] }} @if ($line['unmapped'])<small>· Needs mapping</small>@endif</th>
+                                <td class="money">{{ $line['preview_debit'] ? $money($line['preview_debit']) : '—' }}</td>
+                                <td class="money">{{ $line['preview_credit'] ? $money($line['preview_credit']) : '—' }}</td>
                             </tr>
                         @endforeach
                     </tbody>
                     <tfoot>
-                        <tr><th scope="row">Total (TZS)</th>
-                            @foreach ($totals as $minor)<td class="money">{{ $money($minor) }}</td>@endforeach
+                        <tr>
+                            <th scope="row" colspan="2">Total (TZS)</th>
+                            <td class="money">{{ $money($totals['preview_debit']) }}</td>
+                            <td class="money">{{ $money($totals['preview_credit']) }}</td>
                         </tr>
                     </tfoot>
                 </table>
             </div>
+            <details>
+                <summary>Opening balances and journal movements</summary>
+                <div class="table-wrap" tabindex="0" role="region" aria-label="Opening balance and journal movement breakdown">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th scope="col">Account</th>
+                                <th scope="col" class="money">Opening DR</th>
+                                <th scope="col" class="money">Opening CR</th>
+                                <th scope="col" class="money">Journal DR</th>
+                                <th scope="col" class="money">Journal CR</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($lines as $line)
+                                <tr>
+                                    <th scope="row">@if ($line['code']){{ $line['code'] }} · @endif{{ $line['name'] }}</th>
+                                    @foreach (['opening_debit', 'opening_credit', 'movement_debit', 'movement_credit'] as $column)
+                                        <td class="money">{{ $money($line[$column]) }}</td>
+                                    @endforeach
+                                </tr>
+                            @endforeach
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <th scope="row">Total (TZS)</th>
+                                @foreach (['opening_debit', 'opening_credit', 'movement_debit', 'movement_credit'] as $column)
+                                    <td class="money">{{ $money($totals[$column]) }}</td>
+                                @endforeach
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </details>
         </section>
     @endif
 @endsection

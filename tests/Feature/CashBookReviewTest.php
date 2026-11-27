@@ -117,7 +117,9 @@ class CashBookReviewTest extends TestCase
 
         $this->actingAs(User::factory()->create())->get($path)->assertForbidden();
         $this->actingAs($admin)->get($path)->assertOk()->assertSee('2025-12-31')->assertSee('Unmapped liability')
-            ->assertSee('TZS 0.01 credit excess')->assertViewHas('totals', fn (array $totals): bool => $totals['movement_debit'] === 0);
+            ->assertSee('TZS 0.01 credit excess')
+            ->assertSeeInOrder(['Account code', 'Description', '>DR</th>', '>CR</th>', 'Opening balances and journal movements'], false)
+            ->assertViewHas('totals', fn (array $totals): bool => $totals['movement_debit'] === 0);
         $this->patch(route('staff.cash-book-review.review', $entry), [
             'decision' => 'approve', 'transaction_date' => '2026-10-02', 'accounts' => [$bank, $expense],
             'review_note' => 'Reviewed bank charge.',
