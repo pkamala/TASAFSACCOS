@@ -39,18 +39,19 @@
     <section class="panel stacked-panel">
         <div class="table-wrap" tabindex="0" role="region" aria-label="Imported cashbook entries">
             <table>
-                <thead><tr><th scope="col">Workbook row</th><th scope="col">Date</th><th scope="col">Payee and description</th><th scope="col">Workflow</th><th scope="col">Status</th></tr></thead>
+                <thead><tr><th scope="col">Workbook row</th><th scope="col">Date</th><th scope="col">Payee and description</th><th scope="col">Workflow</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
                 <tbody>
                     @forelse ($entries as $entry)
                         <tr>
-                            <th scope="row"><a href="{{ route('staff.cash-book-review.show', $entry->id) }}">{{ $entry->source_key }}</a></th>
+                            <th scope="row">{{ $entry->source_key }}</th>
                             <td>{{ $entry->transaction_date ?? 'Needs review' }}</td>
                             <td>{{ $entry->payee }} @if ($entry->description) · {{ $entry->description }} @endif</td>
                             <td>{{ $entry->workflow }}</td>
                             <td>{{ ucfirst($entry->status) }}</td>
+                            <td><a href="{{ route('staff.cash-book-review.show', $entry->id) }}">{{ $entry->status === 'posted' ? 'View entry' : 'Review entry' }}</a></td>
                         </tr>
                     @empty
-                        <tr><td colspan="5">No cashbook entries match these filters.</td></tr>
+                        <tr><td colspan="6">No cashbook entries match these filters.</td></tr>
                     @endforelse
                 </tbody>
             </table>

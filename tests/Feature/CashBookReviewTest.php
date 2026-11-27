@@ -46,6 +46,40 @@ class CashBookReviewTest extends TestCase
         $this->assertDatabaseCount('general_journals', 1);
     }
 
+    public function test_staff_can_correct_a_proposal_and_post_only_the_selected_entry(): void
+    {
+        $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 11, 27));
+        $admin = User::factory()->create(['is_staff_admin' => true]);
+        [$bank, $expense] = $this->accounts();
+        $entry = $this->entry('CB2026-10-004');
+        $other = $this->entry('CB2026-10-005');
+        $page = route('staff.cash-book-review.show', $entry);
+        $review = route('staff.cash-book-review.review', $entry);
+        $post = route('staff.cash-book-review.post-entry', $entry);
+        $approval = [
+            'decision' => 'approve', 'transaction_date' => '2026-10-02', 'accounts' => [$bank, $expense],
+            'review_note' => 'Receipt confirms the corrected amount.',
+        ];
+
+        $this->actingAs($admin)->from($page)->patch($review, [
+            'decision' => 'hold', 'review_note' => 'Obtain the bank receipt.',
+        ])->assertRedirect($page);
+        $this->assertDatabaseHas('cash_book_review_entries', ['id' => $entry, 'status' => 'pending', 'review_note' => 'Obtain the bank receipt.']);
+        $this->post($post)->assertRedirect($page);
+        $this->assertDatabaseEmpty('general_journals');
+        $this->patch($review, [...$approval, 'amounts' => ['125.50', '125.00']])->assertSessionHasErrors('review');
+        $this->patch($review, [...$approval, 'amounts' => ['125.50', '125.50']])->assertRedirect($page);
+        $this->patch(route('staff.cash-book-review.review', $other), $approval)->assertRedirect();
+        $this->get($page)->assertOk()->assertSee('Post this journal')->assertSee('125.50 TZS');
+        $this->post($post)->assertRedirect($page);
+        $this->post($post)->assertRedirect($page);
+        $this->assertDatabaseCount('general_journals', 1);
+        $this->assertDatabaseHas('general_journal_lines', ['chart_account_id' => $bank, 'signed_minor' => -12550]);
+        $this->assertDatabaseHas('cash_book_review_entries', ['id' => $other, 'status' => 'approved']);
+        $original = DB::table('cash_book_review_entries')->find($entry)->source_lines;
+        $this->assertSame(-10000, json_decode($original, true)[0]['signed_minor']);
+    }
+
     public function test_an_existing_journal_can_only_be_matched_to_one_source_row(): void
     {
         $admin = User::factory()->create(['is_staff_admin' => true]);

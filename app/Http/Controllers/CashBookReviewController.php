@@ -53,12 +53,14 @@ class CashBookReviewController extends Controller
     public function review(Request $request, int $entry, LedgerReportData $ledger, LedgerPeriods $periods, ChartPostingAccounts $chart): RedirectResponse
     {
         $input = $request->validate([
-            'decision' => ['required', 'in:match,approve,reopen'],
+            'decision' => ['required', 'in:match,approve,reopen,hold'],
             'match' => ['required_if:decision,match', 'nullable', 'string', 'max:100'],
             'review_note' => ['required', 'string', 'max:500'],
             'transaction_date' => ['required_if:decision,approve', 'nullable', 'date_format:Y-m-d', 'before_or_equal:'.now('Africa/Dar_es_Salaam')->toDateString()],
             'accounts' => ['required_if:decision,approve', 'array', 'list', 'max:100'],
             'accounts.*' => ['required_if:decision,approve', 'nullable', 'integer', 'min:1'],
+            'amounts' => ['sometimes', 'array', 'list', 'max:100'],
+            'amounts.*' => ['required', 'regex:/\A[0-9]{1,12}(?:\.[0-9]{1,2})?\z/'],
         ]);
 
         try {
@@ -73,7 +75,7 @@ class CashBookReviewController extends Controller
                 $changes = match ($input['decision']) {
                     'match' => $this->matchJournal($record, $input['match'], $ledger),
                     'approve' => $this->approve($record, $input, $periods, $chart),
-                    'reopen' => ['status' => 'pending'],
+                    'reopen', 'hold' => ['status' => 'pending'],
                 };
                 DB::table('cash_book_review_entries')->where('id', $entry)->update([
                     'matched_journal' => null, 'approved_lines' => null, 'approved_date' => null, ...$changes,
@@ -87,13 +89,13 @@ class CashBookReviewController extends Controller
         return back()->with('status', 'Cashbook review saved.');
     }
 
-    public function post(Request $request, LedgerPeriods $periods, ChartPostingAccounts $chart, JournalPosting $posting): RedirectResponse
+    public function post(Request $request, LedgerPeriods $periods, ChartPostingAccounts $chart, JournalPosting $posting, ?int $entry = null): RedirectResponse
     {
-        $month = $request->validate(['month' => ['required', 'date_format:Y-m']])['month'];
-        $count = DB::transaction(function () use ($request, $month, $periods, $chart, $posting): int {
+        $month = $entry === null ? $request->validate(['month' => ['required', 'date_format:Y-m']])['month'] : null;
+        $count = DB::transaction(function () use ($request, $month, $entry, $periods, $chart, $posting): int {
             DB::selectOne('SELECT pg_advisory_xact_lock(hashtext(?))', ['cash-book-review-post']);
             $entries = DB::table('cash_book_review_entries')->where('status', 'approved')
-                ->where('month', $month.'-01')
+                ->when($entry === null, fn ($query) => $query->where('month', $month.'-01'), fn ($query) => $query->where('id', $entry))
                 ->orderBy('id')->lockForUpdate()->get();
 
             $periods->requireOpenDates($entries->pluck('approved_date')->all(), 'transaction_date');
@@ -115,6 +117,11 @@ class CashBookReviewController extends Controller
 
             return $entries->count();
         }, 3);
+
+        if ($entry !== null) {
+            return redirect()->route('staff.cash-book-review.show', $entry)
+                ->with('status', $count === 0 ? 'This entry has no approved journal to post.' : 'Cashbook journal posted.');
+        }
 
         return back()->with('status', $count === 0 ? 'There are no approved entries to post.' : "$count approved cashbook entries posted.");
     }
@@ -155,7 +162,9 @@ class CashBookReviewController extends Controller
             $this->invalid('This row requires its dedicated member, payroll, or loan reconciliation workflow.');
         }
         $source = json_decode($record->source_lines, true, flags: JSON_THROW_ON_ERROR);
-        if (count($source) !== count($input['accounts']) || substr($input['transaction_date'], 0, 7) !== substr($record->month, 0, 7)) {
+        $amounts = $input['amounts'] ?? null;
+        if (count($source) !== count($input['accounts']) || ($amounts !== null && count($source) !== count($amounts))
+            || substr($input['transaction_date'], 0, 7) !== substr($record->month, 0, 7)) {
             $this->invalid('Map every source line and enter a date within the workbook month.');
         }
         $accountIds = array_map('intval', $input['accounts']);
@@ -166,7 +175,16 @@ class CashBookReviewController extends Controller
             if ($line['bank_code'] !== null && $codes->get($account) !== $line['bank_code']) {
                 $this->invalid('Use the configured bank account for each bank line.');
             }
-            $grouped[$account] = ($grouped[$account] ?? 0) + $line['signed_minor'];
+            $amount = $line['signed_minor'];
+            if ($amounts !== null) {
+                [$whole, $fraction] = array_pad(explode('.', $amounts[$index], 2), 2, '');
+                $minor = (int) $whole * 100 + (int) str_pad($fraction, 2, '0');
+                if ($minor === 0) {
+                    $this->invalid('Enter a positive amount on every proposed journal line.');
+                }
+                $amount = $line['signed_minor'] < 0 ? -$minor : $minor;
+            }
+            $grouped[$account] = ($grouped[$account] ?? 0) + $amount;
         }
         $lines = [];
         foreach (array_filter($grouped) as $account => $amount) {

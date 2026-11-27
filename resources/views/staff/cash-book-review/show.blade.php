@@ -55,7 +55,8 @@
     @endif
     @if ($record->status === 'pending' && $record->workflow === 'General journal')
         <section class="panel stacked-panel">
-            <h2>Approve a new journal</h2>
+            <h2>Correct or approve a journal</h2>
+            <p>Check the date, accounts, and amounts against the supporting evidence. Corrections apply to the proposed journal and the original workbook lines remain above.</p>
             <form method="POST" class="fields" action="{{ route('staff.cash-book-review.review', $record->id) }}">
                 @csrf
                 @method('PATCH')
@@ -71,6 +72,9 @@
                             <option value="{{ $account->id }}" @selected(old('accounts.'.$loop->parent->index, $line['code'] === $account->code ? $account->id : null) == $account->id)>{{ $account->code }} · {{ $account->name }}</option>
                         @endforeach
                     </select>
+                    <label for="amount-{{ $loop->index }}">{{ $line['column'] }} · {{ $line['signed_minor'] < 0 ? 'Credit' : 'Debit' }} amount (TZS)</label>
+                    <input id="amount-{{ $loop->index }}" name="amounts[]" type="text" inputmode="decimal"
+                        value="{{ is_string(old('amounts.'.$loop->index)) ? old('amounts.'.$loop->index) : number_format(abs($line['signed_minor']) / 100, 2, '.', '') }}" required>
                 @endforeach
                 <label for="approval-note">Approval evidence</label>
                 <textarea id="approval-note" name="review_note" maxlength="500" required>{{ old('decision') === 'approve' ? old('review_note') : '' }}</textarea>
@@ -91,6 +95,10 @@
                         <li>{{ $approvedAccount?->code }} {{ $approvedAccount?->name ?? 'Unavailable account' }} · {{ $line['signed_minor'] > 0 ? 'Debit' : 'Credit' }} {{ number_format(abs($line['signed_minor']) / 100, 2) }} TZS</li>
                     @endforeach
                 </ul>
+                <form method="POST" action="{{ route('staff.cash-book-review.post-entry', $record->id) }}">
+                    @csrf
+                    <button class="primary">Post this journal</button>
+                </form>
             @endif
             <form method="POST" class="fields" action="{{ route('staff.cash-book-review.review', $record->id) }}">
                 @csrf
@@ -99,6 +107,19 @@
                 <label for="reopen-note">Reason for reopening</label>
                 <textarea id="reopen-note" name="review_note" maxlength="500" required>{{ old('decision') === 'reopen' ? old('review_note') : '' }}</textarea>
                 <button class="primary">Reopen review</button>
+            </form>
+        </section>
+    @endif
+    @if ($record->status === 'pending')
+        <section class="panel stacked-panel">
+            <h2>Follow-up</h2>
+            <form method="POST" class="fields" action="{{ route('staff.cash-book-review.review', $record->id) }}">
+                @csrf
+                @method('PATCH')
+                <input type="hidden" name="decision" value="hold">
+                <label for="follow-up-note">Correction or evidence needed</label>
+                <textarea id="follow-up-note" name="review_note" maxlength="500" required>{{ old('decision') === 'hold' ? old('review_note') : $record->review_note }}</textarea>
+                <button class="primary">Save follow-up</button>
             </form>
         </section>
     @endif

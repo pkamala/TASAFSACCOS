@@ -149,6 +149,7 @@ Route::prefix('staff')->name('staff.')->middleware(['auth', 'auth.session', 'can
     Route::post('/cash-book-review/post', [CashBookReviewController::class, 'post'])->name('cash-book-review.post');
     Route::get('/cash-book-review/trial-balance', CashBookTrialBalancePreviewController::class)->name('cash-book-review.trial-balance');
     Route::get('/cash-book-review/{entry}', [CashBookReviewController::class, 'show'])->whereNumber('entry')->name('cash-book-review.show');
+    Route::post('/cash-book-review/{entry}/post', [CashBookReviewController::class, 'post'])->whereNumber('entry')->name('cash-book-review.post-entry');
     Route::patch('/cash-book-review/{entry}', [CashBookReviewController::class, 'review'])->whereNumber('entry')->name('cash-book-review.review');
     Route::get('/bank-reconciliation', [BankReconciliationController::class, 'index'])->name('bank-reconciliation.index');
     Route::post('/bank-reconciliation', [BankReconciliationController::class, 'store'])->name('bank-reconciliation.store');
