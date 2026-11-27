@@ -80,11 +80,6 @@
                             @include('nav-link', ['destination' => 'staff.payroll-corrections.index', 'label' => 'Payroll corrections'])
                             @include('nav-link', ['destination' => 'staff.payroll-loan-reconciliation.index', 'label' => 'Payroll loan reconciliation'])
                             @include('nav-link', ['destination' => 'staff.bank-reconciliation.index', 'label' => 'Bank reconciliation'])
-                            @include('nav-link', ['destination' => 'staff.data-imports.index', 'label' => 'Data imports'])
-                            @include('nav-link', ['destination' => 'staff.ledger-opening.index', 'label' => 'Opening journal'])
-                            @include('nav-link', ['destination' => 'staff.verified-balance-import.index', 'label' => 'Verify member balances'])
-                            @include('nav-link', ['destination' => 'staff.verified-legacy-loans.index', 'label' => 'Verify legacy loans'])
-                            @include('nav-link', ['destination' => 'staff.active-loans.index', 'label' => 'Migrate active loans'])
                         </div>
                     </details>
                     <details class="nav-menu">
