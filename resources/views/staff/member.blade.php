@@ -28,9 +28,7 @@
                 <h2>Rejoin membership</h2>
                 <form method="POST" action="{{ route('staff.members.rejoin', $profile->id) }}" class="fields">
                     @csrf
-                    <label for="rejoin_registration_no">New member number</label>
-                    <input id="rejoin_registration_no" name="rejoin_registration_no" maxlength="30"
-                        value="{{ is_string(old('rejoin_registration_no')) ? old('rejoin_registration_no') : '' }}" required>
+                    <p>A new member number will be assigned automatically.</p>
                     <label for="rejoin_joining_date">New joining date</label>
                     <input id="rejoin_joining_date" name="rejoin_joining_date" type="date" max="{{ $today }}"
                         value="{{ is_string(old('rejoin_joining_date')) ? old('rejoin_joining_date') : $today }}" required>

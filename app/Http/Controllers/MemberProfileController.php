@@ -124,21 +124,19 @@ class MemberProfileController extends Controller
 
     public function rejoin(Request $request, int $member): RedirectResponse
     {
-        $number = $request->input('rejoin_registration_no');
-        $request->merge(['rejoin_registration_no' => is_string($number) ? Str::upper(trim($number)) : $number]);
         $input = $request->validate([
-            'rejoin_registration_no' => ['required', 'string', 'max:30', 'regex:/\A[A-Z0-9-]+\z/', 'unique:members,registration_no'],
             'rejoin_joining_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:1900-01-01', 'before_or_equal:'.now('Africa/Dar_es_Salaam')->toDateString()],
         ]);
 
         try {
             $newMember = DB::transaction(function () use ($request, $member, $input): int {
                 DB::selectOne('SELECT pg_advisory_xact_lock(hashtext(?))', ['board-roles']);
+                DB::statement('LOCK TABLE members IN SHARE ROW EXCLUSIVE MODE');
                 $profile = DB::table('members')->lockForUpdate()->find($member);
                 abort_if($profile === null, 404);
 
                 if ($profile->status !== 'exited' || DB::table('members')->where('previous_membership_id', $member)->exists()) {
-                    throw ValidationException::withMessages(['rejoin_registration_no' => 'Only an exited membership without a successor can be rejoined.']);
+                    throw ValidationException::withMessages(['rejoin' => 'Rejoining requires an exited membership that has yet to rejoin.']);
                 }
 
                 $exitedOn = DB::table('member_exits')->where('member_id', $member)->where('status', 'finalized')->max('effective_on');
@@ -149,7 +147,13 @@ class MemberProfileController extends Controller
 
                 $login = User::query()->where('member_id', $member)->lockForUpdate()->first();
                 $now = now();
-                $registrationNo = $input['rejoin_registration_no'];
+                $registrationNo = DB::table('members')
+                    ->whereRaw("registration_no ~ '^[0-9]+$'")
+                    ->selectRaw('CAST(COALESCE(MAX(CAST(registration_no AS numeric)), 0) + 1 AS text) AS next_number')
+                    ->first()->next_number;
+                if (strlen($registrationNo) > 30) {
+                    throw ValidationException::withMessages(['rejoin' => 'No higher member number fits the 30-digit limit.']);
+                }
                 $id = DB::table('members')->insertGetId([
                     'registration_no' => $registrationNo,
                     'previous_membership_id' => $member,
@@ -185,7 +189,7 @@ class MemberProfileController extends Controller
                 return $id;
             }, 3);
         } catch (UniqueConstraintViolationException) {
-            throw ValidationException::withMessages(['rejoin_registration_no' => 'The new membership number or member email is already in use.']);
+            throw ValidationException::withMessages(['rejoin' => 'The member email is already in use by another membership.']);
         }
 
         return redirect()->route('staff.members.show', $newMember)->with('status', 'New membership registered.');

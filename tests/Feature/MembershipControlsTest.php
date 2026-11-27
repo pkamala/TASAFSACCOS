@@ -279,26 +279,31 @@ class MembershipControlsTest extends TestCase
         $admin = User::factory()->create(['is_staff_admin' => true]);
         $login = User::factory()->create(['member_id' => $member, 'email' => 'asha@example.com', 'loan_workflow_roles' => ['staff']]);
         $profile = "/staff/members/$member";
-        $input = ['rejoin_registration_no' => 'new-10415', 'rejoin_joining_date' => '2026-11-27'];
+        $input = ['rejoin_joining_date' => '2026-11-27'];
 
         $this->actingAs($login)->post("$profile/rejoin", $input)->assertForbidden();
-        $this->actingAs($admin)->post("$profile/rejoin", $input)->assertSessionHasErrors('rejoin_registration_no');
+        $this->actingAs($admin)->post("$profile/rejoin", $input)->assertSessionHasErrors('rejoin');
 
         DB::table('members')->where('id', $member)->update(['status' => 'exited', 'payroll_savings_minor' => 50000]);
+        foreach (['9999', '020000', 'LEGACY-99999'] as $number) {
+            DB::table('members')->insert([
+                'first_name' => 'Other', 'last_name' => 'Member', 'registration_no' => $number,
+                'email' => $number.'@example.com', 'status' => 'exited',
+            ]);
+        }
         DB::table('member_exits')->insert([
             'member_id' => $member, 'status' => 'finalized', 'requested_by' => $admin->id,
             'requested_at' => now(), 'reason' => 'Resignation', 'effective_on' => '2026-11-26',
         ]);
 
         $this->get($profile)->assertOk()->assertSee('Register new membership');
-        $this->post("$profile/rejoin", [...$input, 'rejoin_registration_no' => '10415'])->assertSessionHasErrors('rejoin_registration_no');
         $this->post("$profile/rejoin", [...$input, 'rejoin_joining_date' => '2026-11-25'])->assertSessionHasErrors('rejoin_joining_date');
 
-        $response = $this->post("$profile/rejoin", $input);
+        $response = $this->post("$profile/rejoin", [...$input, 'rejoin_registration_no' => '50000']);
         $newMember = DB::table('members')->where('previous_membership_id', $member)->value('id');
         $response->assertRedirect("/staff/members/$newMember");
         $this->assertDatabaseHas('members', [
-            'id' => $newMember, 'previous_membership_id' => $member, 'registration_no' => 'NEW-10415',
+            'id' => $newMember, 'previous_membership_id' => $member, 'registration_no' => '20001',
             'joining_date' => '2026-11-27', 'status' => 'active', 'email' => 'asha@example.com', 'payroll_savings_minor' => 0,
         ]);
         $this->assertDatabaseHas('members', [
@@ -311,10 +316,10 @@ class MembershipControlsTest extends TestCase
         $this->assertSame([], $login->fresh()->loan_workflow_roles);
         $this->assertDatabaseHas('member_audits', ['member_id' => $member, 'actor_id' => $admin->id]);
         $this->assertDatabaseHas('member_audits', ['member_id' => $newMember, 'actor_id' => $admin->id]);
-        $this->get($profile)->assertOk()->assertSee('New membership NEW-10415')->assertDontSee('Register new membership');
+        $this->get($profile)->assertOk()->assertSee('New membership 20001')->assertDontSee('Register new membership');
         $this->get("/staff/members/$newMember")->assertOk()->assertSee('Previous membership 10415');
-        $this->post("$profile/rejoin", [...$input, 'rejoin_registration_no' => 'ANOTHER'])->assertSessionHasErrors('rejoin_registration_no');
-        $this->actingAs($login->fresh())->get('/member/account')->assertOk()->assertSee('NEW-10415');
+        $this->post("$profile/rejoin", $input)->assertSessionHasErrors('rejoin');
+        $this->actingAs($login->fresh())->get('/member/account')->assertOk()->assertSee('20001');
     }
 
     public function test_shared_password_configuration_runs_only_in_demo_and_preserves_admin_passwords(): void
