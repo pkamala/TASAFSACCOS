@@ -109,16 +109,20 @@ class CashBookReviewTest extends TestCase
         [$bank, $expense] = $this->accounts();
         $entry = $this->entry('CB2026-10-004');
         $path = route('staff.cash-book-review.trial-balance');
+        $category = DB::table('account_categories')->insertGetId(['legacy_id' => 2, 'legacy_source_sha256' => str_repeat('a', 64), 'name' => 'Liability']);
+        $type = DB::table('account_types')->insertGetId(['legacy_id' => 2, 'legacy_source_sha256' => str_repeat('a', 64), 'name' => 'Payables', 'account_category_id' => $category]);
+        DB::table('chart_accounts')->insert(['code' => '1000', 'name' => 'Test liability', 'account_type_id' => $type, 'is_ledger_account' => true]);
         $opening = ['source_sha256' => str_repeat('a', 64), 'source_file' => 'Workbook.xlsx', 'as_of' => '2025-12-31'];
         DB::table('cash_book_review_opening_lines')->insert([
             [...$opening, 'source_row' => 5, 'account_code' => '1020', 'description' => 'Bank', 'signed_minor' => 50000],
-            [...$opening, 'source_row' => 6, 'account_code' => null, 'description' => 'Unmapped liability', 'signed_minor' => -50001],
+            [...$opening, 'source_row' => 7, 'account_code' => '1000', 'description' => 'Payables', 'signed_minor' => -20000],
+            [...$opening, 'source_row' => 6, 'account_code' => null, 'description' => 'Unmapped liability', 'signed_minor' => -30001],
         ]);
 
         $this->actingAs(User::factory()->create())->get($path)->assertForbidden();
         $this->actingAs($admin)->get($path)->assertOk()->assertSee('2025-12-31')->assertSee('Unmapped liability')
             ->assertSee('TZS 0.01 credit excess')
-            ->assertSeeInOrder(['Account code', 'Description', '>DR</th>', '>CR</th>', 'Opening balances and journal movements'], false)
+            ->assertSeeInOrder(['Account code', 'Description', '>DR</th>', '>CR</th>', '>Assets</th>', '>Liabilities</th>', 'Test liability', '>Unmapped opening lines</th>', 'Opening balances and journal movements'], false)
             ->assertViewHas('totals', fn (array $totals): bool => $totals['movement_debit'] === 0);
         $this->patch(route('staff.cash-book-review.review', $entry), [
             'decision' => 'approve', 'transaction_date' => '2026-10-02', 'accounts' => [$bank, $expense],

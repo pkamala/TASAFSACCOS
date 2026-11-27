@@ -7,14 +7,18 @@ use Illuminate\View\View;
 
 class CashBookTrialBalancePreviewController extends Controller
 {
+    private const CategoryOrder = ['Assets', 'Liabilities', 'Equity', 'Income', 'Expenses', 'Other accounts', 'Unmapped opening lines'];
+
     public function __invoke(): View
     {
         $source = DB::table('cash_book_review_opening_lines')->orderByDesc('as_of')->orderBy('source_sha256')
             ->first(['source_sha256', 'source_file', 'as_of']);
         $opening = $source === null ? collect() : DB::table('cash_book_review_opening_lines')
             ->where('source_sha256', $source->source_sha256)->orderBy('source_row')->get();
-        $accounts = DB::table('chart_accounts')->where('is_ledger_account', true)
-            ->get(['id', 'code', 'name', 'retired_at'])->keyBy('id');
+        $accounts = DB::table('chart_accounts as account')->where('account.is_ledger_account', true)
+            ->join('account_types as type', 'type.id', '=', 'account.account_type_id')
+            ->join('account_categories as category', 'category.id', '=', 'type.account_category_id')
+            ->get(['account.id', 'account.code', 'account.name', 'account.retired_at', 'category.name as category'])->keyBy('id');
         $activeCodes = $accounts->whereNull('retired_at')->groupBy('code');
         $entries = $source === null ? collect() : DB::table('cash_book_review_entries as entry')
             ->where('entry.source_sha256', $source->source_sha256)
@@ -33,6 +37,7 @@ class CashBookTrialBalancePreviewController extends Controller
             $rows[$key] ??= [
                 'code' => $line->account_code, 'name' => $account?->name ?? $line->description,
                 'opening_debit' => 0, 'opening_credit' => 0, 'movement_debit' => 0, 'movement_credit' => 0,
+                'category' => $this->category($account?->category),
                 'unmapped' => $account === null,
             ];
             $rows[$key][$line->signed_minor > 0 ? 'opening_debit' : 'opening_credit'] += abs($line->signed_minor);
@@ -45,13 +50,19 @@ class CashBookTrialBalancePreviewController extends Controller
                 $rows[$key] ??= [
                     'code' => $account->code, 'name' => $account->name,
                     'opening_debit' => 0, 'opening_credit' => 0, 'movement_debit' => 0, 'movement_credit' => 0,
+                    'category' => $this->category($account->category),
                     'unmapped' => false,
                 ];
                 $rows[$key][$line['signed_minor'] > 0 ? 'movement_debit' : 'movement_credit'] += abs($line['signed_minor']);
             }
         }
 
-        $lines = collect($rows)->sortBy([['unmapped', 'asc'], ['code', 'asc'], ['name', 'asc']])->values()
+        $categoryOrder = array_flip(self::CategoryOrder);
+        $lines = collect($rows)->sortBy([
+            fn (array $left, array $right): int => $categoryOrder[$left['category']] <=> $categoryOrder[$right['category']],
+            ['code', 'asc'],
+            ['name', 'asc'],
+        ])->values()
             ->map(function (array $row): array {
                 $net = $row['opening_debit'] - $row['opening_credit'] + $row['movement_debit'] - $row['movement_credit'];
 
@@ -62,6 +73,21 @@ class CashBookTrialBalancePreviewController extends Controller
             $totals[$column] = $lines->sum($column);
         }
 
-        return view('staff.cash-book-review.trial-balance', compact('source', 'counts', 'unmapped', 'lines', 'totals'));
+        $groups = $lines->groupBy('category');
+
+        return view('staff.cash-book-review.trial-balance', compact('source', 'counts', 'unmapped', 'groups', 'totals'));
+    }
+
+    private function category(?string $name): string
+    {
+        return match (strtolower(trim($name ?? ''))) {
+            '' => 'Unmapped opening lines',
+            'asset', 'assets' => 'Assets',
+            'liability', 'liabilities' => 'Liabilities',
+            'capital', 'equity' => 'Equity',
+            'income', 'revenue' => 'Income',
+            'expense', 'expenses' => 'Expenses',
+            default => 'Other accounts',
+        };
     }
 }

@@ -33,16 +33,19 @@
                             <th scope="col" class="money">CR</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        @foreach ($lines as $line)
-                            <tr>
-                                <td>{{ $line['code'] ?? '—' }}</td>
-                                <th scope="row">{{ $line['name'] }} @if ($line['unmapped'])<small>· Needs mapping</small>@endif</th>
-                                <td class="money">{{ $line['preview_debit'] ? $money($line['preview_debit']) : '—' }}</td>
-                                <td class="money">{{ $line['preview_credit'] ? $money($line['preview_credit']) : '—' }}</td>
-                            </tr>
-                        @endforeach
-                    </tbody>
+                    @foreach ($groups as $category => $group)
+                        <tbody>
+                            <tr><th scope="rowgroup" colspan="4">{{ $category }}</th></tr>
+                            @foreach ($group as $line)
+                                <tr>
+                                    <td>{{ $line['code'] ?? '—' }}</td>
+                                    <th scope="row">{{ $line['name'] }} @if ($line['unmapped'])<small>· Needs mapping</small>@endif</th>
+                                    <td class="money">{{ $line['preview_debit'] ? $money($line['preview_debit']) : '—' }}</td>
+                                    <td class="money">{{ $line['preview_credit'] ? $money($line['preview_credit']) : '—' }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    @endforeach
                     <tfoot>
                         <tr>
                             <th scope="row" colspan="2">Total (TZS)</th>
@@ -65,16 +68,19 @@
                                 <th scope="col" class="money">Journal CR</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            @foreach ($lines as $line)
-                                <tr>
-                                    <th scope="row">@if ($line['code']){{ $line['code'] }} · @endif{{ $line['name'] }}</th>
-                                    @foreach (['opening_debit', 'opening_credit', 'movement_debit', 'movement_credit'] as $column)
-                                        <td class="money">{{ $money($line[$column]) }}</td>
-                                    @endforeach
-                                </tr>
-                            @endforeach
-                        </tbody>
+                        @foreach ($groups as $category => $group)
+                            <tbody>
+                                <tr><th scope="rowgroup" colspan="5">{{ $category }}</th></tr>
+                                @foreach ($group as $line)
+                                    <tr>
+                                        <th scope="row">@if ($line['code']){{ $line['code'] }} · @endif{{ $line['name'] }}</th>
+                                        @foreach (['opening_debit', 'opening_credit', 'movement_debit', 'movement_credit'] as $column)
+                                            <td class="money">{{ $money($line[$column]) }}</td>
+                                        @endforeach
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        @endforeach
                         <tfoot>
                             <tr>
                                 <th scope="row">Total (TZS)</th>
