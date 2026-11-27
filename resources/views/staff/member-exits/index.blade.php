@@ -16,6 +16,6 @@
                 @endforelse
             </tbody>
         </table></div>
-        @include('staff.pagination', ['page' => $exits])
+        @include('staff.pagination', ['page' => $exits, 'memberStatusFilter' => true])
     </section>
 @endsection

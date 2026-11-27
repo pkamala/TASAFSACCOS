@@ -77,7 +77,7 @@
                     </tbody>
                 </table>
             </div>
-            @include('staff.pagination', ['page' => $exceptions])
+            @include('staff.pagination', ['page' => $exceptions, 'memberStatusFilter' => true])
         </section>
     @endif
 @endsection

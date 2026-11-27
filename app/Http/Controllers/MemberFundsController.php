@@ -158,6 +158,7 @@ class MemberFundsController extends Controller
     public function withdrawals(): View
     {
         $rows = DB::table('member_savings_withdrawals as withdrawal')->join('members', 'members.id', '=', 'withdrawal.member_id')
+            ->tap(TablePage::memberStatus('members.status'))
             ->orderByDesc('withdrawal.id')
             ->tap(TablePage::search(['withdrawal.id', 'withdrawal.status', 'members.registration_no', 'members.first_name', 'members.last_name']))
             ->paginate(TablePage::size(), [

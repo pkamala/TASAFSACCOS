@@ -21,6 +21,7 @@
                     <option value="{{ $value }}" @selected($kind === $value)>{{ $label }}</option>
                 @endforeach
             </select>
+            @include('staff.member-status-filter')
             <button class="primary">Run report</button>
         </form>
         <button class="primary" type="button" onclick="window.print()">Print report</button>

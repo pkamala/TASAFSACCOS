@@ -24,6 +24,7 @@ class MemberFundJournalController extends Controller
             ->join('members as member', 'member.id', '=', 'transaction.member_id')
             ->join('users as actor', 'actor.id', '=', 'journal.posted_by')
             ->orderByDesc('journal.id')
+            ->tap(TablePage::memberStatus('member.status'))
             ->tap(TablePage::search(['journal.id', 'journal.transaction_date', 'journal.source_reference', 'transaction.kind', 'member.registration_no', 'actor.name']))
             ->paginate(TablePage::size(), [
                 'journal.id', 'journal.member_fund_transaction_id', 'journal.transaction_date', 'journal.source_reference',

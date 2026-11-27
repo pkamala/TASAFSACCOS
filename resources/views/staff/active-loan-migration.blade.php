@@ -98,6 +98,6 @@
                 </tbody>
             </table>
         </div>
-        @include('staff.pagination', ['page' => $history])
+        @include('staff.pagination', ['page' => $history, 'memberStatusFilter' => true])
     </section>
 @endsection

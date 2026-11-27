@@ -13,7 +13,10 @@ class TaskInboxController extends Controller
 {
     public function index(Request $request, WorkflowTasks $workflow): View
     {
-        $tasks = $workflow->forUser($request->user())->orderByRaw('since NULLS LAST')->orderBy('type')->orderBy('reference')
+        $tasks = $workflow->forUser($request->user())
+            ->leftJoin('members as member', 'member.id', '=', 'task.member_id')->select('task.*')
+            ->tap(TablePage::memberStatus('member.status'))
+            ->orderByRaw('since NULLS LAST')->orderBy('type')->orderBy('reference')
             ->tap(TablePage::search(['type', 'reference', 'since']))
             ->paginate(TablePage::size())->withQueryString();
         $members = DB::table('members')->whereIntegerInRaw('id', $tasks->getCollection()->pluck('member_id')->filter()->unique()->all())

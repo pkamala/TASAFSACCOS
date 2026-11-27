@@ -1,7 +1,10 @@
 @extends('layout')
 @section('title', 'SACCOS ledger trial balance')
 @section('content')
-    @php($money = fn ($value) => number_format($value / 100, 2))
+    @php
+        $money = fn ($value) => number_format($value / 100, 2);
+        $reportDate = strtoupper(\Carbon\CarbonImmutable::parse($to)->format('d-M-Y'));
+    @endphp
     <div class="page-intro">
         <a class="print-hide" href="{{ route('staff.loan-journal.index') }}">Loan journal</a>
         <p class="print-only">TASAF SACCOS</p>
@@ -21,26 +24,30 @@
 
     <section class="panel stacked-panel print-register">
         <div class="table-wrap" tabindex="0" role="region" aria-label="SACCOS ledger trial balance">
-            <table data-table-pages>
+            <table data-table-pages data-export-template="trial-balance">
                 <thead>
-                    <tr><th scope="col" rowspan="2">Account</th><th scope="colgroup" colspan="2">Opening balance</th><th scope="colgroup" colspan="2">Period movement</th><th scope="colgroup" colspan="2">Closing balance</th></tr>
-                    <tr><th class="money" scope="col">Debit</th><th class="money" scope="col">Credit</th><th class="money" scope="col">Debit</th><th class="money" scope="col">Credit</th><th class="money" scope="col">Debit</th><th class="money" scope="col">Credit</th></tr>
+                    <tr>
+                        @foreach (['TRANS_DATE', 'GRP', 'TRANS_DATE1', 'ACCOUNT', 'DESCRIPTION', 'GL_BFWBAL', 'DEBITS', 'CREDITS', 'NET_CHANGE', 'ENDING_BAL'] as $column)
+                            <th scope="col">{{ $column }}</th>
+                        @endforeach
+                    </tr>
                 </thead>
                 <tbody>
                     @forelse ($accounts as $account)
                         <tr>
-                            <th scope="row" class="register-name"><a href="{{ route('staff.loan-ledger.account', ['account' => $account->id, 'from' => $from, 'to' => $to]) }}">{{ $account->code }} · {{ $account->name }}</a><small>{{ $account->legacy_id ? 'Legacy ID '.$account->legacy_id : 'Account ID '.$account->id }}</small></th>
-                            @foreach ([max(0, $account->opening_minor), max(0, -$account->opening_minor), $account->debit_minor, $account->credit_minor, max(0, $account->closing_minor), max(0, -$account->closing_minor)] as $value)
+                            <td>{{ $reportDate }}</td>
+                            <td>{{ preg_match('/^[1-5][0-9]{3}$/', $account->code) ? $account->code[0].'00' : '' }}</td>
+                            <td>{{ $reportDate }}</td>
+                            <th scope="row"><a href="{{ route('staff.loan-ledger.account', ['account' => $account->id, 'from' => $from, 'to' => $to]) }}">{{ $account->code }}</a></th>
+                            <td class="register-name">{{ $account->name }}</td>
+                            @foreach ([$account->opening_minor, $account->debit_minor, -$account->credit_minor, $account->debit_minor - $account->credit_minor, $account->closing_minor] as $value)
                                 <td class="money">{{ $money($value) }}</td>
                             @endforeach
                         </tr>
                     @empty
-                        <tr><td colspan="7">No posted journal activity through this period.</td></tr>
+                        <tr><td colspan="10">No posted journal activity through this period.</td></tr>
                     @endforelse
                 </tbody>
-                <tfoot><tr><th scope="row">Totals</th>
-                    @foreach ($totals as $value)<td class="money">{{ $money($value) }}</td>@endforeach
-                </tr></tfoot>
             </table>
         </div>
     </section>

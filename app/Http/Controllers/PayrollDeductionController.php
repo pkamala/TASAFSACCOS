@@ -24,10 +24,12 @@ class PayrollDeductionController extends Controller
             $preview = null;
         }
         $differences = collect($deductions->differences($components, $preview['overrides'] ?? []));
+        $memberStatuses = DB::table('members')->whereIn('id', $differences->pluck('member_id')->unique())
+            ->pluck('status', 'id');
         $planned = (int) array_sum(array_column($components, 'planned'));
         $actual = $planned + $differences->sum('difference');
 
-        return view('staff.loan-batches.deductions', compact('record', 'preview', 'registrationNumbers', 'differences', 'planned', 'actual'));
+        return view('staff.loan-batches.deductions', compact('record', 'preview', 'registrationNumbers', 'memberStatuses', 'differences', 'planned', 'actual'));
     }
 
     public function template(int $batch, PayrollDeductions $deductions): StreamedResponse

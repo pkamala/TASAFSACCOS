@@ -33,6 +33,7 @@ class ActiveLoanMigrationController extends Controller
             ->join('members as member', 'member.id', '=', 'loan.member_id')
             ->join('users as actor', 'actor.id', '=', 'loan.created_by')
             ->orderByDesc('loan.id')
+            ->tap(TablePage::memberStatus('member.status'))
             ->tap(TablePage::search(['migration.source_id', 'migration.effective_on', 'migration.review_reference', 'member.registration_no', 'actor.name']))
             ->paginate(TablePage::size(), [
                 'migration.source_id', 'migration.effective_on', 'migration.review_reference', 'loan.id', 'loan.member_id',

@@ -50,7 +50,7 @@
                         $member = $members->get($item['member_id']);
                         $rowKey = isset($item['loan_id']) ? 'loan:'.$item['loan_id'] : 'fund:'.$item['member_id'];
                     @endphp
-                    <tr><th scope="row">
+                    <tr data-member-status="{{ $member->status }}"><th scope="row">
                         @if (isset($item['loan_id']))
                             <a href="{{ route('staff.loan-applications.show', [$item['member_id'], $item['loan_id']]) }}">Loan {{ $item['loan_id'] }}</a>
                         @else

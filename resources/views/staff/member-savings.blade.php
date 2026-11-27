@@ -15,7 +15,10 @@
             @endif
             <label for="q">Name or membership number</label>
             <input id="q" name="q" type="search" value="{{ $search }}" maxlength="100">
-            <button class="primary" data-search-fallback>Search</button>
+            <label for="as_of">Balance as of</label>
+            <input id="as_of" name="as_of" type="date" value="{{ $asOf }}">
+            @include('staff.member-status-filter')
+            <button class="primary" data-search-fallback>Apply filters</button>
         </form>
         <p class="note live-table-status" data-live-table-status role="status"></p>
         @fragment('table-results')

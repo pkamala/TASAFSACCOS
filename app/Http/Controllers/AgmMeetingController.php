@@ -47,7 +47,10 @@ class AgmMeetingController extends Controller
         abort_if($event === null, 404);
         $counts = $this->registerQuery($meeting)->reorder()->selectRaw('count(*) as registered, count(checked_in_at) as checked_in')->first();
         $registrations = $this->registerQuery($meeting)
-            ->tap(TablePage::search(['registration_no', 'member_name', 'email', 'phone']))
+            ->leftJoin('members as member', 'member.id', '=', 'agm_registrations.member_id')
+            ->select('agm_registrations.*')
+            ->tap(TablePage::memberStatus('member.status'))
+            ->tap(TablePage::search(['agm_registrations.registration_no', 'agm_registrations.member_name', 'agm_registrations.email', 'agm_registrations.phone']))
             ->paginate(TablePage::size());
 
         return view('staff.agm.show', compact('event', 'counts', 'registrations'));
@@ -93,7 +96,7 @@ class AgmMeetingController extends Controller
 
     private function registerQuery(int $meeting): Builder
     {
-        return DB::table('agm_registrations')->where('agm_meeting_id', $meeting)->orderByRaw('lower(member_name)')->orderBy('id');
+        return DB::table('agm_registrations')->where('agm_meeting_id', $meeting)->orderByRaw('lower(agm_registrations.member_name)')->orderBy('agm_registrations.id');
     }
 
     private function csvText(?string $value): string

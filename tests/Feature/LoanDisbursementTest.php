@@ -74,5 +74,10 @@ class LoanDisbursementTest extends TestCase
         ]);
         $this->get($url)->assertOk()->assertSee('BANK-TRANSFER-42')->assertSee('Bank checklist');
         $this->get('/staff/loan-register?status=disbursed')->assertOk()->assertSee(">$approved<", false);
+        $this->get('/staff/loan-register?status=disbursed&from=2026-11-22&to=2026-11-22')
+            ->assertOk()->assertSee(">$approved<", false);
+        $this->get('/staff/loan-register?status=disbursed&to=2026-11-21')
+            ->assertOk()->assertSee('No loans match this filter.');
+
     }
 }

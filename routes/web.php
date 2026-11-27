@@ -53,6 +53,7 @@ use App\Http\Controllers\PayrollCorrectionController;
 use App\Http\Controllers\PayrollDeductionController;
 use App\Http\Controllers\PayrollJournalController;
 use App\Http\Controllers\PayrollLoanReconciliationController;
+use App\Http\Controllers\ReportsController;
 use App\Http\Controllers\SavingsLoanPaymentController;
 use App\Http\Controllers\StaffAdminController;
 use App\Http\Controllers\StaffPasswordSetupController;
@@ -149,6 +150,7 @@ Route::prefix('staff')->name('staff.')->middleware(['auth', 'auth.session', 'can
     Route::get('/cash-book/transactions/new', [GeneralJournalController::class, 'create'])->name('cash-book.transactions.create');
     Route::post('/cash-book/transactions/preview', [GeneralJournalController::class, 'preview'])->name('cash-book.transactions.preview');
     Route::post('/cash-book/transactions/post', [GeneralJournalController::class, 'post'])->name('cash-book.transactions.post');
+    Route::get('/reports', ReportsController::class)->name('reports.index');
     Route::get('/ledger-financial-reports', LedgerFinancialReportsController::class)->name('ledger-financial-reports');
     Route::get('/assets', [AssetRegisterController::class, 'index'])->name('assets.index');
     Route::post('/assets', [AssetRegisterController::class, 'store'])->name('assets.store');
@@ -239,6 +241,7 @@ Route::prefix('staff')->name('staff.')->middleware(['auth', 'auth.session', 'can
         Route::get('/', [LoanApplicationController::class, 'index'])->name('index');
     });
     Route::patch('/members/{member}', [MemberProfileController::class, 'update'])->whereNumber('member')->name('members.update');
+    Route::post('/members/{member}/rejoin', [MemberProfileController::class, 'rejoin'])->whereNumber('member')->name('members.rejoin');
     Route::patch('/members/{member}/status', [MemberProfileController::class, 'updateStatus'])->whereNumber('member')->name('members.status.update');
     Route::patch('/members/{member}/loan-role', [MemberProfileController::class, 'updateLoanRole'])->whereNumber('member')->name('members.loan-role.update');
     Route::patch('/members/{member}/payroll-contributions', [MemberProfileController::class, 'updatePayroll'])->whereNumber('member')->name('members.payroll.update');

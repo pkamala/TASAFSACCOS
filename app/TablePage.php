@@ -34,6 +34,17 @@ class TablePage
         return is_string($value) ? trim(mb_substr($value, 0, 100)) : '';
     }
 
+    public static function memberStatus(string $column): Closure
+    {
+        return static function (Builder|EloquentBuilder $query) use ($column): void {
+            $status = request()->query('member_status');
+
+            if (in_array($status, ['active', 'inactive', 'exited'], true)) {
+                $query->where($column, $status);
+            }
+        };
+    }
+
     /** @param list<string> $columns */
     public static function search(array $columns, string $page = 'page'): Closure
     {

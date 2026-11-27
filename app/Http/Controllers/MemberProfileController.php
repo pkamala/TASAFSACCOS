@@ -110,10 +110,85 @@ class MemberProfileController extends Controller
 
         $exitedOn = DB::table('member_exits')->where('member_id', $member)->where('status', 'finalized')->value('effective_on');
 
-        return response()->view('staff.member', compact('profile', 'history', 'login', 'exitedOn'), headers: [
+        $previousMembership = $profile->previous_membership_id === null
+            ? null : DB::table('members')->find($profile->previous_membership_id, ['id', 'registration_no']);
+        $nextMembership = $profile->status === 'exited'
+            ? DB::table('members')->where('previous_membership_id', $member)->first(['id', 'registration_no']) : null;
+        $today = now('Africa/Dar_es_Salaam')->toDateString();
+
+        return response()->view('staff.member', compact('profile', 'history', 'login', 'exitedOn', 'previousMembership', 'nextMembership', 'today'), headers: [
             'Cache-Control' => 'private, no-store',
             'Referrer-Policy' => 'no-referrer',
         ]);
+    }
+
+    public function rejoin(Request $request, int $member): RedirectResponse
+    {
+        $number = $request->input('rejoin_registration_no');
+        $request->merge(['rejoin_registration_no' => is_string($number) ? Str::upper(trim($number)) : $number]);
+        $input = $request->validate([
+            'rejoin_registration_no' => ['required', 'string', 'max:30', 'regex:/\A[A-Z0-9-]+\z/', 'unique:members,registration_no'],
+            'rejoin_joining_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:1900-01-01', 'before_or_equal:'.now('Africa/Dar_es_Salaam')->toDateString()],
+        ]);
+
+        try {
+            $newMember = DB::transaction(function () use ($request, $member, $input): int {
+                DB::selectOne('SELECT pg_advisory_xact_lock(hashtext(?))', ['board-roles']);
+                $profile = DB::table('members')->lockForUpdate()->find($member);
+                abort_if($profile === null, 404);
+
+                if ($profile->status !== 'exited' || DB::table('members')->where('previous_membership_id', $member)->exists()) {
+                    throw ValidationException::withMessages(['rejoin_registration_no' => 'Only an exited membership without a successor can be rejoined.']);
+                }
+
+                $exitedOn = DB::table('member_exits')->where('member_id', $member)->where('status', 'finalized')->max('effective_on');
+                $joiningDate = $input['rejoin_joining_date'];
+                if (($exitedOn !== null && $joiningDate < $exitedOn) || ($profile->joining_date !== null && $joiningDate <= $profile->joining_date)) {
+                    throw ValidationException::withMessages(['rejoin_joining_date' => 'Choose a date after the previous joining date and on or after the exit date.']);
+                }
+
+                $login = User::query()->where('member_id', $member)->lockForUpdate()->first();
+                $now = now();
+                $registrationNo = $input['rejoin_registration_no'];
+                $id = DB::table('members')->insertGetId([
+                    'registration_no' => $registrationNo,
+                    'previous_membership_id' => $member,
+                    'first_name' => $profile->first_name,
+                    'middle_name' => $profile->middle_name,
+                    'last_name' => $profile->last_name,
+                    'email' => $profile->email,
+                    'phone' => $profile->phone,
+                    'joining_date' => $joiningDate,
+                    'status' => 'active',
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+
+                if ($login !== null && ! $login->is_staff_admin) {
+                    $login->member_id = $id;
+                    $login->loan_workflow_roles = [];
+                    $login->board_role = null;
+                    $login->save();
+                }
+
+                DB::table('member_audits')->insert([
+                    [
+                        'member_id' => $member, 'actor_id' => $request->user()->id, 'recorded_at' => $now,
+                        'changes' => json_encode(['next_membership' => ['before' => null, 'after' => $registrationNo]], JSON_THROW_ON_ERROR),
+                    ],
+                    [
+                        'member_id' => $id, 'actor_id' => $request->user()->id, 'recorded_at' => $now,
+                        'changes' => json_encode(['previous_membership' => ['before' => null, 'after' => $profile->registration_no]], JSON_THROW_ON_ERROR),
+                    ],
+                ]);
+
+                return $id;
+            }, 3);
+        } catch (UniqueConstraintViolationException) {
+            throw ValidationException::withMessages(['rejoin_registration_no' => 'The new membership number or member email is already in use.']);
+        }
+
+        return redirect()->route('staff.members.show', $newMember)->with('status', 'New membership registered.');
     }
 
     public function update(Request $request, int $member): RedirectResponse

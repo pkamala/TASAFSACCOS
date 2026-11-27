@@ -10,6 +10,12 @@
         <a href="{{ route('staff.loan-applications.index', $profile->id) }}">Loan applications</a>
         <a href="{{ route('staff.member-funds.index', $profile->id) }}">Savings and shares</a>
         <a href="{{ route('staff.member-exits.create', $profile->id) }}">Membership exit</a>
+        @if ($previousMembership)
+            <a href="{{ route('staff.members.show', $previousMembership->id) }}">Previous membership {{ $previousMembership->registration_no }}</a>
+        @endif
+        @if ($nextMembership)
+            <a href="{{ route('staff.members.show', $nextMembership->id) }}">New membership {{ $nextMembership->registration_no }}</a>
+        @endif
         @if ($profile->legacy_member_id)
             <a href="{{ route('staff.legacy-loans.index', $profile->id) }}">Legacy loans and repayments</a>
             <a href="{{ route('staff.legacy-member-transactions', $profile->id) }}">Legacy savings and contributions</a>
@@ -17,6 +23,21 @@
     </div>
     @if (session('status')) <p role="status">{{ session('status') }}</p> @endif
     <div class="profile-grid">
+        @if ($profile->status === 'exited' && ! $nextMembership)
+            <section class="panel">
+                <h2>Rejoin membership</h2>
+                <form method="POST" action="{{ route('staff.members.rejoin', $profile->id) }}" class="fields">
+                    @csrf
+                    <label for="rejoin_registration_no">New member number</label>
+                    <input id="rejoin_registration_no" name="rejoin_registration_no" maxlength="30"
+                        value="{{ is_string(old('rejoin_registration_no')) ? old('rejoin_registration_no') : '' }}" required>
+                    <label for="rejoin_joining_date">New joining date</label>
+                    <input id="rejoin_joining_date" name="rejoin_joining_date" type="date" max="{{ $today }}"
+                        value="{{ is_string(old('rejoin_joining_date')) ? old('rejoin_joining_date') : $today }}" required>
+                    <button class="primary">Register new membership</button>
+                </form>
+            </section>
+        @endif
         @if ($profile->status !== 'exited')
             <section class="panel">
                 <h2>Membership status</h2>

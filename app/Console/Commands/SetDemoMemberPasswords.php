@@ -40,7 +40,10 @@ class SetDemoMemberPasswords extends Command
             $created = $updated = $skipped = 0;
             $emails = [];
             $userIds = [];
-            foreach (DB::table('members')->orderBy('id')->get(['id', 'email', 'first_name', 'last_name']) as $member) {
+            $members = DB::table('members')->whereNotIn('id', DB::table('members')
+                ->whereNotNull('previous_membership_id')->select('previous_membership_id'))
+                ->orderBy('id')->get(['id', 'email', 'first_name', 'last_name']);
+            foreach ($members as $member) {
                 $user = User::query()->where('member_id', $member->id)->lockForUpdate()->first();
                 $email = Str::lower(trim($user?->email ?? $member->email));
                 if ($user?->is_staff_admin

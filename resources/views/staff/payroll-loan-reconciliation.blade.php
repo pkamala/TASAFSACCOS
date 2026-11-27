@@ -66,6 +66,6 @@
                 </tbody>
             </table>
         </div>
-        @include('staff.pagination', ['page' => $entries])
+        @include('staff.pagination', ['page' => $entries, 'memberStatusFilter' => true])
     </section>
 @endsection

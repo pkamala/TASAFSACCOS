@@ -3,12 +3,13 @@
     $pageName = $page->getPageName();
     $sizeKey = \App\TablePage::key($pageName);
     $searchKey = \App\TablePage::searchKey($pageName);
+    $searchExcluded = [$pageName, $searchKey, ...(($memberStatusFilter ?? false) ? ['member_status'] : [])];
     $filters = request()->except([$pageName, $sizeKey]);
 @endphp
-<div class="table-pagination print-hide" data-server-table-pagination>
+<div class="table-pagination print-hide" data-server-table-pagination="{{ $pageName }}" data-export-total="{{ $page->total() }}">
     @if ($searchable ?? true)
         <form class="fields search print-hide" method="GET" action="{{ request()->url() }}" data-table-search-form>
-            @foreach (request()->except([$pageName, $searchKey]) as $key => $value)
+            @foreach (request()->except($searchExcluded) as $key => $value)
                 @if (is_scalar($value))
                     <input type="hidden" name="{{ $key }}" value="{{ $value }}">
                 @endif
@@ -16,6 +17,9 @@
             <label>Search table
                 <input name="{{ $searchKey }}" type="search" maxlength="100" value="{{ \App\TablePage::searchTerm($pageName) }}">
             </label>
+            @if ($memberStatusFilter ?? false)
+                @include('staff.member-status-filter')
+            @endif
             <button type="submit">Search</button>
         </form>
     @endif

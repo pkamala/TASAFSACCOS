@@ -95,6 +95,6 @@
                 </tbody>
             </table>
         </div>
-        @include('staff.pagination', ['page' => $queued])
+        @include('staff.pagination', ['page' => $queued, 'memberStatusFilter' => true])
     </section>
 @endsection

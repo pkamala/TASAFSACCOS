@@ -33,7 +33,7 @@
                         <thead><tr><th scope="col">Member</th><th scope="col">Deduction</th><th class="money" scope="col">Planned (TZS)</th><th class="money" scope="col">Actual (TZS)</th><th class="money" scope="col">Difference (TZS)</th><th scope="col">Status</th></tr></thead>
                         <tbody>
                             @foreach ($differences as $row)
-                                <tr><th scope="row">{{ $registrationNumbers[$row['member_id']] }}</th><td>{{ $row['label'] }}</td>
+                                <tr data-member-status="{{ $memberStatuses[$row['member_id']] ?? '' }}"><th scope="row">{{ $registrationNumbers[$row['member_id']] }}</th><td>{{ $row['label'] }}</td>
                                     <td class="money">{{ $money($row['planned']) }}</td><td class="money">{{ $money($row['actual']) }}</td>
                                     <td class="money">{{ $money($row['difference']) }}</td><td>{{ $row['status'] }}</td>
                                 </tr>

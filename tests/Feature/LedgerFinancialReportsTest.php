@@ -13,6 +13,28 @@ class LedgerFinancialReportsTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
+    public function test_reporting_overview_shows_pending_payroll_by_month_to_member_administrators(): void
+    {
+        $path = route('staff.reports.index');
+        $this->get($path)->assertRedirect('/staff/login');
+        $this->actingAs(User::factory()->create())->get($path)->assertForbidden();
+
+        DB::table('payroll_loan_reconciliations')->insert([
+            'payroll_month' => '2026-11-01', 'source_file' => 'November.xlsx',
+            'source_sha256' => str_repeat('a', 64), 'source_row' => 4, 'loan_slot' => 1,
+            'member_name' => 'Asha Member', 'total_minor' => 123456,
+        ]);
+
+        $admin = User::factory()->create(['is_staff_admin' => true]);
+        $this->actingAs($admin)->get($path)->assertOk()
+            ->assertSee('<summary>Reports</summary>', false)
+            ->assertSee('No disbursed loans recorded.')
+            ->assertSee(route('staff.payroll-loan-reconciliation.index', ['month' => '2026-11']))
+            ->assertViewHas('payroll', fn ($payroll): bool => $payroll->sole()->pending_count === 1
+                && $payroll->sole()->reconciled_count === 0
+                && (int) $payroll->sole()->pending_minor === 123456);
+    }
+
     public function test_financial_reports_use_chart_categories_and_exclude_opening_values_from_period_income(): void
     {
         $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 11, 22));

@@ -103,7 +103,7 @@ class LoanBatchController extends Controller
         }
         $items = json_decode($record->items, true, flags: JSON_THROW_ON_ERROR);
         $members = DB::table('members')->whereIn('id', array_column($items, 'member_id'))
-            ->get(['id', 'registration_no', 'first_name', 'last_name'])->keyBy('id');
+            ->get(['id', 'registration_no', 'first_name', 'last_name', 'status'])->keyBy('id');
         $actors = DB::table('users')->whereIn('id', array_filter([$record->prepared_by, $record->reviewed_by, $record->confirmed_by]))
             ->pluck('name', 'id');
 

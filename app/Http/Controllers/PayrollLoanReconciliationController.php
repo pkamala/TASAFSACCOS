@@ -26,6 +26,7 @@ class PayrollLoanReconciliationController extends Controller
             ->whereNull('deduction.receipt_id', not: $status === 'reconciled')
             ->when($month !== '', fn ($query) => $query->where('deduction.payroll_month', $month.'-01'))
             ->orderBy('deduction.payroll_month')->orderBy('deduction.source_row')->orderBy('deduction.loan_slot')->orderBy('deduction.id')
+            ->tap(TablePage::memberStatus('member.status'))
             ->tap(TablePage::search(['deduction.payroll_month', 'deduction.source_file', 'deduction.source_row', 'deduction.member_name', 'deduction.source_member_number', 'deduction.source_loan_reference', 'member.registration_no', 'receipt.receipt_reference']))
             ->paginate(TablePage::size(), ['deduction.*', 'member.registration_no', 'receipt.receipt_reference', 'receipt.loan_batch_id']);
 

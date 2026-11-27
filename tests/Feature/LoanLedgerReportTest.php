@@ -37,11 +37,12 @@ class LoanLedgerReportTest extends TestCase
         $this->actingAs(User::factory()->create())->get("$path$filter")->assertForbidden();
 
         $this->actingAs($admin)->get("$path$filter")->assertOk()
-            ->assertSee('Print report')->assertSee('Loan receivable')
-            ->assertViewHas('totals', [
-                'opening_debit' => 100000, 'opening_credit' => 100000,
-                'debit' => 25000, 'credit' => 25000, 'closing_debit' => 75000, 'closing_credit' => 75000,
-            ]);
+            ->assertSee('Print report')->assertSee('Loan receivable')->assertSee('15-NOV-2026')
+            ->assertSeeInOrder(['TRANS_DATE', 'GRP', 'TRANS_DATE1', 'ACCOUNT', 'DESCRIPTION', 'GL_BFWBAL', 'DEBITS', 'CREDITS', 'NET_CHANGE', 'ENDING_BAL'])
+            ->assertSee('-250.00')
+            ->assertDontSee('<tfoot>', false)
+            ->assertViewHas('accounts', fn ($rows): bool => (int) $rows->firstWhere('id', $receivable)->closing_minor === 75000
+                && (int) $rows->firstWhere('id', $bank)->closing_minor === -75000);
         $this->get("$path/accounts/$receivable$filter")->assertOk()
             ->assertSee('1,000.00 Dr')->assertSee('750.00 Dr')->assertSee('PAYROLL-1115')
             ->assertSee("/staff/loan-journal/$inPeriod")->assertDontSee('AFTER-CUTOFF')

@@ -7,6 +7,7 @@ function recordsLabel(total) {
 document.querySelectorAll('main table').forEach(table => {
     const wrapper = table.closest('.table-wrap') ?? table;
     const serverControls = wrapper.nextElementSibling;
+    addTableExport(table);
     if (serverControls?.matches('[data-server-table-pagination]')) {
         const form = serverControls.querySelector('[data-table-search-form]');
         if (form) wrapper.before(form);
@@ -35,6 +36,22 @@ document.querySelectorAll('main table').forEach(table => {
     search.addEventListener('keydown', event => {
         if (event.key === 'Enter') event.preventDefault();
     });
+
+    let memberStatus;
+    if (rows.some(row => row.hasAttribute('data-member-status'))) {
+        const filter = document.createElement('label');
+        filter.className = 'page-size print-hide';
+        filter.innerHTML = `Member status
+            <select>
+                <option value="">All members</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="exited">Exited</option>
+            </select>`;
+        memberStatus = filter.querySelector('select');
+        memberStatus.addEventListener('change', resetPage);
+        wrapper.before(filter);
+    }
 
     const paged = table.hasAttribute('data-table-pages');
     if (paged) {
@@ -65,7 +82,8 @@ document.querySelectorAll('main table').forEach(table => {
         let total = 0;
 
         rows.forEach((row, index) => {
-            const matches = terms.every(term => rowText[index].includes(term));
+            const matches = (!memberStatus?.value || row.dataset.memberStatus === memberStatus.value)
+                && terms.every(term => rowText[index].includes(term));
             row.hidden = !matches;
             row.classList.toggle('outside-table-page', matches && (total < first || total >= first + pageSize));
             if (matches) total += 1;
@@ -136,6 +154,7 @@ document.querySelectorAll('[data-live-table-search]').forEach(form => {
             const focused = results.contains(document.activeElement);
             results.replaceWith(replacement);
             results = replacement;
+            results.querySelectorAll('table').forEach(addTableExport);
             history.replaceState(history.state, '', url);
             if (focused) {
                 results.setAttribute('tabindex', '-1');
@@ -161,7 +180,7 @@ document.querySelectorAll('[data-live-table-search]').forEach(form => {
         timer = setTimeout(() => refresh(searchUrl()), 300);
     });
     form.addEventListener('change', event => {
-        if (event.target.matches('select')) refresh(searchUrl());
+        if (event.target.matches('select, input[type=date]')) refresh(searchUrl());
     });
     form.addEventListener('submit', event => {
         if (!form.querySelector('[data-search-fallback]').hidden) return;

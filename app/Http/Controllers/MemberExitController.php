@@ -19,6 +19,7 @@ class MemberExitController extends Controller
     {
         $exits = DB::table('member_exits as exit')->join('members as member', 'member.id', '=', 'exit.member_id')
             ->orderByDesc('exit.id')
+            ->tap(TablePage::memberStatus('member.status'))
             ->tap(TablePage::search(['exit.id', 'exit.status', 'exit.requested_at', 'member.registration_no', 'member.first_name', 'member.last_name']))
             ->paginate(TablePage::size(), [
                 'exit.id', 'exit.status', 'exit.requested_at', 'member.registration_no', 'member.first_name', 'member.last_name',

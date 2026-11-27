@@ -13,6 +13,6 @@
             @endforelse
             </tbody>
         </table></div>
-        @include('staff.pagination', ['page' => $rows])
+        @include('staff.pagination', ['page' => $rows, 'memberStatusFilter' => true])
     </section>
 @endsection

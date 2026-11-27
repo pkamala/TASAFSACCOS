@@ -24,6 +24,6 @@
                 </tbody>
             </table>
         </div>
-        @include('staff.pagination', ['page' => $tasks])
+        @include('staff.pagination', ['page' => $tasks, 'memberStatusFilter' => true])
     </section>
 @endsection

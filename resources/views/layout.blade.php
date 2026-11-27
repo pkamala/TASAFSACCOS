@@ -9,7 +9,8 @@
     @endif
     <link rel="stylesheet" href="{{ asset('saccos.css') }}">
     <script src="{{ asset('saccos-nav.js') }}" defer></script>
-    <script src="{{ asset('saccos-tables.js') }}" defer></script>
+    <script src="{{ asset('saccos-table-exports.js') }}?v=4" defer></script>
+    <script src="{{ asset('saccos-tables.js') }}?v=4" defer></script>
 </head>
 <body>
     <a class="skip-link" href="#main-content">Skip to content</a>
@@ -64,14 +65,24 @@
                         </div>
                     </details>
                     <details class="nav-menu">
+                        <summary>Reports</summary>
+                        <div class="nav-options">
+                            @include('nav-link', ['destination' => 'staff.reports.index', 'label' => 'Reporting overview'])
+                            @include('nav-link', ['destination' => 'staff.ledger-financial-reports', 'label' => 'Financial statements'])
+                            @include('nav-link', ['destination' => 'staff.loan-ledger.index', 'label' => 'Trial balance'])
+                            @include('nav-link', ['destination' => 'staff.cash-book.index', 'label' => 'Cash book'])
+                            @include('nav-link', ['destination' => 'staff.loan-register', 'label' => 'Loan register'])
+                            @include('nav-link', ['destination' => 'staff.payroll-loan-reconciliation.index', 'label' => 'Payroll loan reconciliation'])
+                            @include('nav-link', ['destination' => 'staff.member-savings.index', 'label' => 'Member savings'])
+                        </div>
+                    </details>
+                    <details class="nav-menu">
                         <summary>Administration</summary>
                         <div class="nav-options">
                             @include('nav-link', ['destination' => 'staff.admin-accounts.index', 'label' => 'Admin accounts'])
                             @include('nav-link', ['destination' => 'staff.members.index', 'label' => 'Members'])
                             @include('nav-link', ['destination' => 'staff.loan-categories.index', 'label' => 'Loan categories'])
                             @include('nav-link', ['destination' => 'staff.accounts.index', 'label' => 'Chart of accounts'])
-                            @include('nav-link', ['destination' => 'staff.loan-ledger.index', 'label' => 'Ledger'])
-                            @include('nav-link', ['destination' => 'staff.ledger-financial-reports', 'label' => 'Financial reports'])
                             @include('nav-link', ['destination' => 'staff.budgets.index', 'label' => 'Annual budget'])
                             @include('nav-link', ['destination' => 'staff.assets.index', 'label' => 'Asset register'])
                             @include('nav-link', ['destination' => 'staff.board-roles.index', 'label' => 'Board roles'])

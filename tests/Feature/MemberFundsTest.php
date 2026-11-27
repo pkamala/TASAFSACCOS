@@ -67,7 +67,7 @@ class MemberFundsTest extends TestCase
         $this->assertSame(9500000, $reserved['available']);
         DB::table('members')->insert([
             'first_name' => 'Unverified', 'last_name' => 'Member', 'registration_no' => 'UNKNOWN-1',
-            'email' => 'unverified@example.com', 'status' => 'active',
+            'email' => 'unverified@example.com', 'status' => 'inactive',
         ]);
         $this->get('/staff/member-savings')->assertForbidden();
         $this->get('/staff/member-savings?product=deposits')->assertForbidden();
@@ -78,6 +78,15 @@ class MemberFundsTest extends TestCase
                 fn ($row): bool => $row->id === $member && (int) $row->savings === $reserved['savings']
                     && (int) $row->available === $reserved['available'],
             ));
+        $this->get('/staff/member-savings?member_status=active&as_of=2026-11-21')->assertOk()
+            ->assertSee('100,000.00')->assertDontSee('UNKNOWN-1')
+            ->assertViewHas('rows', fn ($rows): bool => $rows->total() === 1);
+        $this->get('/staff/member-savings?member_status=inactive&q=UNKNOWN', ['X-Requested-With' => 'XMLHttpRequest'])->assertOk()
+            ->assertSee('UNKNOWN-1')->assertDontSee('Asha Mushi')->assertSee('1 record');
+        $this->get('/staff/member-savings?q=10415&as_of=2026-11-21')->assertOk()
+            ->assertSee('100,000.00')->assertDontSee('125,000.25')->assertDontSee('30,000.25');
+        $this->get('/staff/member-savings?q=10415&as_of=2026-11-20')->assertOk()
+            ->assertSee('Awaiting verified opening balances');
         $this->get('/staff/member-savings?q=Asha%20Mushi', ['X-Requested-With' => 'XMLHttpRequest'])->assertOk()
             ->assertSee('95,000.00')->assertSee($path)->assertDontSee('UNKNOWN-1')->assertDontSee('<!doctype html>', false);
         $this->get('/staff/member-savings?product=deposits&q=10415', ['X-Requested-With' => 'XMLHttpRequest'])->assertOk()

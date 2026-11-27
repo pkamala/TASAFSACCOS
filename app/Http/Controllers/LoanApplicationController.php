@@ -50,7 +50,7 @@ class LoanApplicationController extends Controller
                 $query->where('application.created_by', $actor->id);
             }
         }
-        $applications = $query->orderByRaw('lower(member.first_name), lower(member.last_name)')->orderBy('application.id')
+        $applications = $query->tap(TablePage::memberStatus('member.status'))->orderByRaw('lower(member.first_name), lower(member.last_name)')->orderBy('application.id')
             ->tap(TablePage::search(['application.id', 'application.approval_lane', 'category.name', 'member.registration_no', 'member.first_name', 'member.last_name', 'creator.name']))
             ->paginate(TablePage::size());
 

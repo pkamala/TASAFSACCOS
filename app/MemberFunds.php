@@ -72,12 +72,12 @@ class MemberFunds
         ];
     }
 
-    public function withBalances(Builder $members): Builder
+    public function withBalances(Builder $members, ?string $asOf = null): Builder
     {
         return $members
-            ->leftJoinLateral($this->opening()->whereColumn('member_id', 'members.id')->limit(1), 'opening')
-            ->leftJoinLateral($this->movements()->whereColumn('member_id', 'members.id'), 'movement')
-            ->leftJoinLateral($this->reservations()->whereColumn('member_id', 'members.id'), 'withdrawal')
+            ->leftJoinLateral($this->opening()->whereColumn('member_id', 'members.id')->when($asOf, fn (Builder $query) => $query->where('as_of', '<=', $asOf))->limit(1), 'opening')
+            ->leftJoinLateral($this->movements($asOf)->whereColumn('member_id', 'members.id'), 'movement')
+            ->leftJoinLateral($this->reservations($asOf)->whereColumn('member_id', 'members.id'), 'withdrawal')
             ->addSelect('opening.as_of', 'withdrawal.reserved', 'movement.deposits')
             ->selectRaw('opening.shares_minor + movement.shares AS shares')
             ->selectRaw('opening.savings_minor + movement.savings AS savings, opening.savings_minor + movement.savings - withdrawal.reserved AS available');
@@ -88,22 +88,31 @@ class MemberFunds
         return DB::table('member_verified_balances')->whereNull('superseded_by_id')->orderByDesc('as_of')->orderByDesc('id');
     }
 
-    private function movements(): Builder
+    private function movements(?string $asOf = null): Builder
     {
+        $historical = $asOf !== null;
+        $bindings = $historical ? [$asOf] : [];
+        $posted = self::activePostedJournal($historical);
+
         return DB::table('member_fund_transactions')
-            ->selectRaw('coalesce('.self::savingsMovement().', 0) AS savings')
+            ->when($historical, fn (Builder $query) => $query->where('effective_on', '<=', $asOf))
+            ->selectRaw('coalesce('.self::savingsMovement($historical).', 0) AS savings', $bindings)
             ->selectRaw("coalesce(sum(signed_minor) FILTER (WHERE kind IN ('share_purchase', 'exit_shares')), 0) AS shares")
-            ->selectRaw("coalesce(sum(signed_minor) FILTER (WHERE kind = 'member_deposit' OR (kind = 'deposit_interest' AND EXISTS (
-                SELECT 1 FROM member_fund_journals AS journal
-                WHERE journal.member_fund_transaction_id = member_fund_transactions.id
-                    AND NOT EXISTS (SELECT 1 FROM ledger_journal_reversals AS reversal WHERE reversal.member_fund_journal_id = journal.id)
-            ))), 0) AS deposits")
+            ->selectRaw("coalesce(sum(signed_minor) FILTER (WHERE kind = 'member_deposit' OR (kind = 'deposit_interest' AND {$posted})), 0) AS deposits", $bindings)
             ->selectRaw("max(effective_on) FILTER (WHERE kind NOT IN ('member_deposit', 'deposit_interest', 'savings_interest')) AS latest");
     }
 
-    private function reservations(): Builder
+    private function reservations(?string $asOf = null): Builder
     {
-        return DB::table('member_savings_withdrawals')->where('status', 'approved')
-            ->selectRaw('coalesce(sum(amount_minor), 0) AS reserved');
+        return DB::table('member_savings_withdrawals as withdrawal')
+            ->selectRaw('coalesce(sum(amount_minor), 0) AS reserved')
+            ->when($asOf === null, fn (Builder $query) => $query->where('status', 'approved'))
+            ->when($asOf !== null, function (Builder $query) use ($asOf): void {
+                $query->whereIn('status', ['approved', 'paid'])
+                    ->whereRaw("(reviewed_at AT TIME ZONE 'Africa/Dar_es_Salaam')::date <= ?", [$asOf])
+                    ->whereNotExists(fn (Builder $query) => $query->selectRaw('1')->from('member_fund_transactions as payment')
+                        ->whereColumn('payment.member_savings_withdrawal_id', 'withdrawal.id')
+                        ->where('payment.effective_on', '<=', $asOf));
+            });
     }
 }

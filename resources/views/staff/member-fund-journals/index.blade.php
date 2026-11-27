@@ -19,6 +19,6 @@
                 </tbody>
             </table>
         </div>
-        @include('staff.pagination', ['page' => $journals])
+        @include('staff.pagination', ['page' => $journals, 'memberStatusFilter' => true])
     </section>
 @endsection

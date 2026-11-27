@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\TablePage;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -39,6 +40,7 @@ class LoanTransactionsReportController extends Controller
         return DB::table('loan_disbursements as transfer')
             ->join('loan_applications as loan', 'loan.id', '=', 'transfer.loan_application_id')
             ->join('members as member', 'member.id', '=', 'loan.member_id')
+            ->tap(TablePage::memberStatus('member.status'))
             ->join('users as recorder', 'recorder.id', '=', 'transfer.recorded_by')
             ->whereBetween('transfer.transferred_on', [$from, $to])
             ->orderBy('transfer.transferred_on')->orderBy('loan.id')
@@ -60,6 +62,7 @@ class LoanTransactionsReportController extends Controller
         return DB::table('loan_repayment_receipts as receipt')
             ->join('loan_applications as loan', 'loan.id', '=', 'receipt.loan_application_id')
             ->join('members as member', 'member.id', '=', 'loan.member_id')
+            ->tap(TablePage::memberStatus('member.status'))
             ->join('users as recorder', 'recorder.id', '=', 'receipt.recorded_by')
             ->leftJoinSub($allocated, 'allocated', 'allocated.loan_repayment_receipt_id', '=', 'receipt.id')
             ->whereBetween('receipt.received_on', [$from, $to])

@@ -71,6 +71,7 @@ SQL, [$asOf]);
             ->select('staged.source_id', 'member.id as member_id', 'member.registration_no', 'verified.principal_minor')
             ->selectRaw("staged.data->>'loan_code' AS reference")
             ->orderBy('member.registration_no')->orderBy('staged.source_id')
+            ->tap(TablePage::memberStatus('member.status'))
             ->tap(TablePage::search(['staged.source_id', 'staged.data->loan_code', 'member.registration_no']))
             ->paginate(TablePage::size())->withQueryString();
 

@@ -38,6 +38,7 @@ class MonthlyStatementReviewController extends Controller
             ->select('statement.*', 'member.registration_no', 'member.first_name', 'member.last_name', 'actor.name as reviewer')
             ->selectRaw("($mismatch) AS recipient_mismatch", ['pending'])
             ->orderByRaw('lower(member.first_name), lower(member.last_name)')->orderBy('statement.id')
+            ->tap(TablePage::memberStatus('member.status'))
             ->tap(TablePage::search(['member.registration_no', 'member.first_name', 'member.last_name', 'statement.recipient', 'statement.delivery_status', 'actor.name']))
             ->paginate(TablePage::size())->appends(['period' => $selected]);
         $deliveryConfigured = $mailer->configured($mailer->selectedAccountId());
