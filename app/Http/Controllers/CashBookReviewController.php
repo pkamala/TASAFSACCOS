@@ -56,11 +56,13 @@ class CashBookReviewController extends Controller
             'decision' => ['required', 'in:match,approve,reopen,hold'],
             'match' => ['required_if:decision,match', 'nullable', 'string', 'max:100'],
             'review_note' => ['required', 'string', 'max:500'],
-            'transaction_date' => ['required_if:decision,approve', 'nullable', 'date_format:Y-m-d', 'before_or_equal:'.now('Africa/Dar_es_Salaam')->toDateString()],
-            'accounts' => ['required_if:decision,approve', 'array', 'list', 'max:100'],
-            'accounts.*' => ['required_if:decision,approve', 'nullable', 'integer', 'min:1'],
-            'amounts' => ['sometimes', 'array', 'list', 'max:100'],
-            'amounts.*' => ['required', 'regex:/\A[0-9]{1,12}(?:\.[0-9]{1,2})?\z/'],
+            'values' => ['sometimes', 'in:workbook,corrected'],
+            'ledger_acknowledged' => ['sometimes', 'accepted'],
+            'transaction_date' => ['exclude_if:values,workbook', 'required_if:decision,approve', 'nullable', 'date_format:Y-m-d', 'before_or_equal:'.now('Africa/Dar_es_Salaam')->toDateString()],
+            'accounts' => ['exclude_if:values,workbook', 'required_if:decision,approve', 'array', 'list', 'max:100'],
+            'accounts.*' => ['exclude_if:values,workbook', 'required_if:decision,approve', 'nullable', 'integer', 'min:1'],
+            'amounts' => ['exclude_if:values,workbook', 'sometimes', 'array', 'list', 'max:100'],
+            'amounts.*' => ['exclude_if:values,workbook', 'required', 'regex:/\A[0-9]{1,12}(?:\.[0-9]{1,2})?\z/'],
         ]);
 
         try {
@@ -158,16 +160,38 @@ class CashBookReviewController extends Controller
 
     private function approve(stdClass $record, array $input, LedgerPeriods $periods, ChartPostingAccounts $chart): array
     {
-        if ($record->workflow !== 'General journal') {
-            $this->invalid('This row requires its dedicated member, payroll, or loan reconciliation workflow.');
+        $matches = json_decode($record->match_candidates, true, flags: JSON_THROW_ON_ERROR);
+        if (($record->workflow !== 'General journal' || $matches !== []) && ! isset($input['ledger_acknowledged'])) {
+            $this->invalid('Confirm that you checked for an existing posting and that this approval is for the general ledger only.');
         }
+
         $source = json_decode($record->source_lines, true, flags: JSON_THROW_ON_ERROR);
-        $amounts = $input['amounts'] ?? null;
-        if (count($source) !== count($input['accounts']) || ($amounts !== null && count($source) !== count($amounts))
-            || substr($input['transaction_date'], 0, 7) !== substr($record->month, 0, 7)) {
-            $this->invalid('Map every source line and enter a date within the workbook month.');
+        $fromWorkbook = ($input['values'] ?? 'corrected') === 'workbook';
+        $date = $fromWorkbook ? $record->transaction_date : $input['transaction_date'];
+        $amounts = $fromWorkbook ? null : ($input['amounts'] ?? null);
+        if ($date === null || substr($date, 0, 7) !== substr($record->month, 0, 7)
+            || $date > now('Africa/Dar_es_Salaam')->toDateString()) {
+            $this->invalid('Enter a valid effective date within the workbook month.');
         }
-        $accountIds = array_map('intval', $input['accounts']);
+
+        if ($fromWorkbook) {
+            $mapped = DB::table('chart_accounts')->where('is_ledger_account', true)->whereNull('retired_at')
+                ->whereIn('code', array_column($source, 'code'))->get(['id', 'code'])->groupBy('code');
+            $accountIds = [];
+            foreach ($source as $line) {
+                $accounts = $mapped->get($line['code'], collect());
+                if ($accounts->count() !== 1) {
+                    $this->invalid('Some workbook lines need an account mapping. Use corrected values to select their accounts.');
+                }
+                $accountIds[] = (int) $accounts->first()->id;
+            }
+        } else {
+            $accountIds = array_map('intval', $input['accounts']);
+            if (count($source) !== count($accountIds) || ($amounts !== null && count($source) !== count($amounts))) {
+                $this->invalid('Map every workbook line and enter its corrected amount.');
+            }
+        }
+
         $codes = DB::table('chart_accounts')->whereIn('id', $accountIds)->pluck('code', 'id');
         $grouped = [];
         foreach ($source as $index => $line) {
@@ -191,9 +215,9 @@ class CashBookReviewController extends Controller
             $lines[] = ['chart_account_id' => $account, 'signed_minor' => $amount];
         }
         $this->checkAccounts($lines, $chart);
-        $periods->requireOpenDates([$input['transaction_date']], 'transaction_date');
+        $periods->requireOpenDates([$date], 'transaction_date');
 
-        return ['status' => 'approved', 'approved_date' => $input['transaction_date'], 'approved_lines' => json_encode($lines, JSON_THROW_ON_ERROR)];
+        return ['status' => 'approved', 'approved_date' => $date, 'approved_lines' => json_encode($lines, JSON_THROW_ON_ERROR)];
     }
 
     private function checkAccounts(array $lines, ChartPostingAccounts $chart): void

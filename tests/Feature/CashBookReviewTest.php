@@ -28,7 +28,7 @@ class CashBookReviewTest extends TestCase
         ];
 
         $this->actingAs(User::factory()->create())->patch($review, $approval)->assertForbidden();
-        $this->actingAs($admin)->get($page)->assertOk()->assertSee('Approve new journal')->assertSee('Bank charges');
+        $this->actingAs($admin)->get($page)->assertOk()->assertSee('Approve workbook values')->assertSee('Approve corrected values')->assertSee('Bank charges');
         $this->from($page)->patch($review, [...$approval, 'accounts' => [$expense, $bank]])->assertSessionHasErrors('review');
         $this->patch($review, $approval)->assertRedirect($page);
         $this->assertDatabaseHas('cash_book_review_entries', ['id' => $entry, 'status' => 'approved', 'approved_date' => '2026-10-02']);
@@ -78,6 +78,29 @@ class CashBookReviewTest extends TestCase
         $this->assertDatabaseHas('cash_book_review_entries', ['id' => $other, 'status' => 'approved']);
         $original = DB::table('cash_book_review_entries')->find($entry)->source_lines;
         $this->assertSame(-10000, json_decode($original, true)[0]['signed_minor']);
+    }
+
+    public function test_workbook_values_can_be_approved_for_a_historical_loan_repayment_in_the_ledger(): void
+    {
+        $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 11, 27));
+        $admin = User::factory()->create(['is_staff_admin' => true]);
+        [$bank] = $this->accounts();
+        $entry = $this->entry('CB2026-10-004');
+        DB::table('cash_book_review_entries')->where('id', $entry)->update(['workflow' => 'Individual loan repayment']);
+        $review = route('staff.cash-book-review.review', $entry);
+        $input = [
+            'decision' => 'approve', 'values' => 'workbook', 'review_note' => 'Checked the bank statement and existing journals.',
+            'transaction_date' => '2026-10-02', 'amounts' => ['125.50', '125.50'],
+        ];
+
+        $this->actingAs($admin)->get(route('staff.cash-book-review.show', $entry))->assertOk()
+            ->assertSee('general ledger only')->assertSee('Approve workbook values')->assertSee('Approve corrected values');
+        $this->patch($review, $input)->assertSessionHasErrors('review');
+        $this->patch($review, [...$input, 'ledger_acknowledged' => '1'])->assertRedirect();
+        $this->assertDatabaseHas('cash_book_review_entries', ['id' => $entry, 'status' => 'approved', 'approved_date' => '2026-10-01']);
+        $this->post(route('staff.cash-book-review.post-entry', $entry))->assertRedirect();
+        $this->assertDatabaseHas('general_journal_lines', ['chart_account_id' => $bank, 'signed_minor' => -10000]);
+        $this->assertDatabaseEmpty('loan_repayment_receipts');
     }
 
     public function test_an_existing_journal_can_only_be_matched_to_one_source_row(): void

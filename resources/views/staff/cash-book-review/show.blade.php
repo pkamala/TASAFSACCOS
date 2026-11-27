@@ -53,10 +53,13 @@
             </form>
         </section>
     @endif
-    @if ($record->status === 'pending' && $record->workflow === 'General journal')
+    @if ($record->status === 'pending')
         <section class="panel stacked-panel">
             <h2>Correct or approve a journal</h2>
-            <p>Check the date, accounts, and amounts against the supporting evidence. Corrections apply to the proposed journal and the original workbook lines remain above.</p>
+            <p>Use the workbook date, mapped accounts, and amounts as shown above, or enter corrected values below. Approval queues a journal for posting.</p>
+            @if ($record->workflow !== 'General journal')
+                <p>Posting here updates the general ledger only. Use {{ strtolower($record->workflow) }} reconciliation for any changes to member or payroll records.</p>
+            @endif
             <form method="POST" class="fields" action="{{ route('staff.cash-book-review.review', $record->id) }}">
                 @csrf
                 @method('PATCH')
@@ -78,11 +81,18 @@
                 @endforeach
                 <label for="approval-note">Approval evidence</label>
                 <textarea id="approval-note" name="review_note" maxlength="500" required>{{ old('decision') === 'approve' ? old('review_note') : '' }}</textarea>
-                <button class="primary">Approve new journal</button>
+                @if ($record->workflow !== 'General journal' || $matches)
+                    <label>
+                        <input type="checkbox" name="ledger_acknowledged" value="1" @checked(old('ledger_acknowledged')) required>
+                        I checked for an existing posting and approve this entry for the general ledger only.
+                    </label>
+                @endif
+                <div class="actions">
+                    <button class="primary" name="values" value="workbook" formnovalidate>Approve workbook values</button>
+                    <button class="primary" name="values" value="corrected">Approve corrected values</button>
+                </div>
             </form>
         </section>
-    @elseif ($record->status === 'pending' && $record->workflow !== 'General journal')
-        <p>Review this entry through {{ strtolower($record->workflow) }} reconciliation.</p>
     @elseif (in_array($record->status, ['matched', 'approved'], true))
         <section class="panel stacked-panel">
             @if ($approved)
