@@ -19,9 +19,17 @@ class CutoverChecklistController extends Controller
             'receivables.*' => ['required', 'integer', 'min:1', 'distinct'],
         ]);
         $selected = array_map('intval', $data['receivables'] ?? []);
+        $payroll = DB::table('payroll_loan_reconciliations')
+            ->select('payroll_month')
+            ->selectRaw('count(*) filter (where receipt_id is not null) as reconciled_count')
+            ->selectRaw('count(*) filter (where receipt_id is null) as pending_count')
+            ->selectRaw('coalesce(sum(total_minor) filter (where receipt_id is not null), 0) as reconciled_minor')
+            ->selectRaw('coalesce(sum(total_minor) filter (where receipt_id is null), 0) as pending_minor')
+            ->groupBy('payroll_month')->orderByDesc('payroll_month')->get();
+
         $journal = DB::table('ledger_opening_journals')->first(['id', 'effective_on', 'review_reference']);
         if ($journal === null) {
-            return view('staff.cutover-checklist', compact('journal'));
+            return view('staff.cutover-checklist', compact('journal', 'payroll'));
         }
 
         $asOf = CarbonImmutable::parse($journal->effective_on)->subDay()->toDateString();
@@ -75,6 +83,6 @@ SQL, [$asOf]);
             ->tap(TablePage::search(['staged.source_id', 'staged.data->loan_code', 'member.registration_no']))
             ->paginate(TablePage::size())->withQueryString();
 
-        return view('staff.cutover-checklist', compact('journal', 'asOf', 'opening', 'selected', 'receivableMinor', 'members', 'totals', 'exceptions'));
+        return view('staff.cutover-checklist', compact('journal', 'asOf', 'opening', 'selected', 'receivableMinor', 'members', 'totals', 'exceptions', 'payroll'));
     }
 }

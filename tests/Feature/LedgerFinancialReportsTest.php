@@ -13,9 +13,9 @@ class LedgerFinancialReportsTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
-    public function test_reporting_overview_shows_pending_payroll_by_month_to_member_administrators(): void
+    public function test_migration_checklist_shows_pending_payroll_by_month_to_member_administrators(): void
     {
-        $path = route('staff.reports.index');
+        $path = route('staff.cutover-checklist');
         $this->get($path)->assertRedirect('/staff/login');
         $this->actingAs(User::factory()->create())->get($path)->assertForbidden();
 
@@ -27,12 +27,15 @@ class LedgerFinancialReportsTest extends TestCase
 
         $admin = User::factory()->create(['is_staff_admin' => true]);
         $this->actingAs($admin)->get($path)->assertOk()
-            ->assertSee('<summary>Reports</summary>', false)
-            ->assertSee('No disbursed loans recorded.')
+            ->assertSee('<summary>Migration</summary>', false)
+            ->assertSee('Cutover checklist')
             ->assertSee(route('staff.payroll-loan-reconciliation.index', ['month' => '2026-11']))
             ->assertViewHas('payroll', fn ($payroll): bool => $payroll->sole()->pending_count === 1
                 && $payroll->sole()->reconciled_count === 0
                 && (int) $payroll->sole()->pending_minor === 123456);
+        $this->get(route('staff.reports.index'))->assertOk()
+            ->assertSee('No disbursed loans recorded.')
+            ->assertDontSee(route('staff.payroll-loan-reconciliation.index', ['month' => '2026-11']));
     }
 
     public function test_financial_reports_use_chart_categories_and_exclude_opening_values_from_period_income(): void

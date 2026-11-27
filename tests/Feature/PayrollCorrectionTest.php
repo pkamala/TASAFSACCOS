@@ -50,7 +50,7 @@ class PayrollCorrectionTest extends TestCase
         $this->actingAs(User::factory()->create())->get($path)->assertForbidden();
         $this->patch($action, ['resolution' => 'Confirmed'])->assertForbidden();
         $this->actingAs($admin)->get('/staff/data-imports')->assertOk()->assertSee($path)
-            ->assertSeeInOrder(['Operations', 'Payment lists', 'Payroll corrections', 'Administration']);
+            ->assertSeeInOrder(['Reports', 'Migration', 'Cutover checklist', 'Payroll corrections', 'Administration']);
         $this->get($path)->assertOk()->assertSee('February payroll.csv')->assertSee('Row 2');
         $this->from($path)->patch($action)->assertSessionHasErrors('resolution');
         $this->patch($action, ['resolution' => 'Confirmed the registration number against the signed register.'])->assertRedirect($path);

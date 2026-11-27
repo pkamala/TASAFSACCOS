@@ -36,8 +36,6 @@
                             @include('nav-link', ['destination' => 'staff.loan-batches.index', 'label' => 'Payment lists'])
                             @can('manage-members')
                                 @include('nav-link', ['destination' => 'staff.agm.index', 'label' => 'AGM registration'])
-                                @include('nav-link', ['destination' => 'staff.payroll-corrections.index', 'label' => 'Payroll corrections'])
-                                @include('nav-link', ['destination' => 'staff.payroll-loan-reconciliation.index', 'label' => 'Payroll loan reconciliation'])
                             @endcan
                             @include('nav-link', ['destination' => 'staff.member-exits.index', 'label' => 'Member exits'])
                             @include('nav-link', ['destination' => 'staff.savings-withdrawals.index', 'label' => 'Withdrawals'])
@@ -72,8 +70,21 @@
                             @include('nav-link', ['destination' => 'staff.loan-ledger.index', 'label' => 'Trial balance'])
                             @include('nav-link', ['destination' => 'staff.cash-book.index', 'label' => 'Cash book'])
                             @include('nav-link', ['destination' => 'staff.loan-register', 'label' => 'Loan register'])
-                            @include('nav-link', ['destination' => 'staff.payroll-loan-reconciliation.index', 'label' => 'Payroll loan reconciliation'])
                             @include('nav-link', ['destination' => 'staff.member-savings.index', 'label' => 'Member savings'])
+                        </div>
+                    </details>
+                    <details class="nav-menu">
+                        <summary>Migration</summary>
+                        <div class="nav-options">
+                            @include('nav-link', ['destination' => 'staff.cutover-checklist', 'label' => 'Cutover checklist'])
+                            @include('nav-link', ['destination' => 'staff.payroll-corrections.index', 'label' => 'Payroll corrections'])
+                            @include('nav-link', ['destination' => 'staff.payroll-loan-reconciliation.index', 'label' => 'Payroll loan reconciliation'])
+                            @include('nav-link', ['destination' => 'staff.bank-reconciliation.index', 'label' => 'Bank reconciliation'])
+                            @include('nav-link', ['destination' => 'staff.data-imports.index', 'label' => 'Data imports'])
+                            @include('nav-link', ['destination' => 'staff.ledger-opening.index', 'label' => 'Opening journal'])
+                            @include('nav-link', ['destination' => 'staff.verified-balance-import.index', 'label' => 'Verify member balances'])
+                            @include('nav-link', ['destination' => 'staff.verified-legacy-loans.index', 'label' => 'Verify legacy loans'])
+                            @include('nav-link', ['destination' => 'staff.active-loans.index', 'label' => 'Migrate active loans'])
                         </div>
                     </details>
                     <details class="nav-menu">
@@ -86,7 +97,6 @@
                             @include('nav-link', ['destination' => 'staff.budgets.index', 'label' => 'Annual budget'])
                             @include('nav-link', ['destination' => 'staff.assets.index', 'label' => 'Asset register'])
                             @include('nav-link', ['destination' => 'staff.board-roles.index', 'label' => 'Board roles'])
-                            @include('nav-link', ['destination' => 'staff.data-imports.index', 'label' => 'Data imports'])
                             @include('nav-link', ['destination' => 'staff.mailing-accounts.index', 'label' => 'Mailing accounts'])
                             @include('nav-link', ['destination' => 'staff.branding.edit', 'label' => 'Branding'])
                         </div>
