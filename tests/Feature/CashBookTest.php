@@ -55,6 +55,37 @@ class CashBookTest extends TestCase
             ]);
     }
 
+    public function test_complete_imported_month_uses_workbook_totals_and_keeps_posted_ledger_available(): void
+    {
+        $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 11, 24));
+        $admin = User::factory()->create(['is_staff_admin' => true]);
+        [$call, , $clearing] = $this->accounts();
+        DB::table('cash_book_accounts')->insert(['chart_account_id' => $call]);
+        $this->journal($admin, '2026-10-15', 'POSTED-RECEIPT', [$call => 10000, $clearing => -10000]);
+        DB::table('cash_book_monthly_balances')->insert([
+            'month' => '2026-10-01', 'chart_account_id' => $call, 'opening_minor' => 50000,
+            'receipts_minor' => 25000, 'payments_minor' => 10000, 'closing_minor' => 67000,
+            'source_file' => 'Cashbook.xlsx', 'source_sha256' => str_repeat('c', 64),
+        ]);
+        $period = ['from' => '2026-10-01', 'to' => '2026-10-31'];
+
+        $this->actingAs($admin)->get(route('staff.cash-book.index', $period))->assertOk()
+            ->assertSee('Cashbook.xlsx')->assertSee('Workbook difference')->assertViewHas('totals', [
+                'opening_minor' => 50000, 'receipts_minor' => 25000, 'payments_minor' => 10000,
+                'difference_minor' => 2000, 'closing_minor' => 67000,
+            ]);
+        $this->get(route('staff.cash-book.index', [...$period, 'source' => 'ledger']))->assertOk()
+            ->assertViewHas('totals', fn (array $totals): bool => $totals['closing_minor'] === 10000);
+        $this->get(route('staff.cash-book.index', [...$period, 'to' => '2026-10-30']))->assertOk()
+            ->assertViewHas('workbook', []);
+        $this->get(route('staff.cash-book.index', [...$period, 'from' => '2026-09-01']))->assertOk()
+            ->assertViewHas('workbook', []);
+
+        $export = $this->get(route('staff.cash-book.export', $period))->assertOk()
+            ->assertDownload('cash-book-workbook-2026-10-01-to-2026-10-31.csv');
+        $this->assertStringContainsString(',,Total,500.00,250.00,100.00,20.00,670.00', $export->streamedContent());
+    }
+
     public function test_cash_book_and_classification_require_administrator_access(): void
     {
         [$call] = $this->accounts();
