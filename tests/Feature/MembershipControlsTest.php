@@ -272,6 +272,39 @@ class MembershipControlsTest extends TestCase
         $this->assertDatabaseHas('members', ['id' => $member, 'status' => 'active']);
     }
 
+    public function test_staff_can_mark_a_member_deceased_and_finalize_their_exit(): void
+    {
+        $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 11, 22));
+        $member = $this->member();
+        $admin = User::factory()->create(['is_staff_admin' => true]);
+        $officer = User::factory()->create(['member_id' => $member, 'board_role' => 'chairperson']);
+        $reviewer = User::factory()->create(['board_role' => 'secretary']);
+        $profile = "/staff/members/$member";
+        $reason = ['status_reason' => 'Membership status reviewed'];
+
+        $this->actingAs($admin)->get($profile)->assertOk()->assertSee('Withdrawn')->assertSee('Deceased');
+        $this->patch("$profile/status", ['membership_status' => 'withdrawn', ...$reason])->assertRedirect("$profile/exit");
+        $this->get("$profile/exit")->assertOk()->assertSee($reason['status_reason']);
+        $this->assertDatabaseHas('members', ['id' => $member, 'status' => 'active']);
+
+        $this->patch("$profile/status", ['membership_status' => 'deceased', ...$reason])->assertRedirect($profile);
+        $this->assertNull($officer->fresh()->board_role);
+        $this->assertDatabaseHas('member_audits', ['member_id' => $member, 'actor_id' => $admin->id]);
+        $this->get('/staff/members?status=deceased')->assertOk()->assertSee('10415');
+        $this->patch("$profile/status", ['membership_status' => 'active', ...$reason])->assertSessionHasErrors('membership_status');
+        $this->post("$profile/rejoin", ['rejoin_joining_date' => '2026-11-22'])->assertSessionHasErrors('rejoin');
+        $this->actingAs($officer->fresh())->post('/member/exit', ['reason' => 'Estate settlement'])->assertSessionHasErrors('exit');
+        $this->actingAs($admin)->post("$profile/exit", ['reason' => 'Estate settlement'])->assertRedirect();
+        $exit = DB::table('member_exits')->sole()->id;
+        $path = "/staff/member-exits/$exit";
+        $this->actingAs($reviewer)->post("$path/review", ['decision' => 'approved', 'review_note' => 'Estate verified'])->assertRedirect();
+        $this->actingAs($admin)->post("$path/finalize", ['effective_on' => '2026-11-22', 'settlement_reference' => 'Estate receipt'])->assertRedirect();
+
+        $this->assertDatabaseHas('member_exits', ['id' => $exit, 'status' => 'finalized']);
+        $this->assertDatabaseHas('members', ['id' => $member, 'status' => 'deceased']);
+        $this->post("$profile/exit", ['reason' => 'Duplicate settlement'])->assertSessionHasErrors('exit');
+    }
+
     public function test_an_exited_member_rejoins_with_a_new_membership_and_keeps_their_login(): void
     {
         $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 11, 27));

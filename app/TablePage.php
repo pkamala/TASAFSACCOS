@@ -39,7 +39,7 @@ class TablePage
         return static function (Builder|EloquentBuilder $query) use ($column): void {
             $status = request()->query('member_status');
 
-            if (in_array($status, ['active', 'inactive', 'exited'], true)) {
+            if (in_array($status, ['active', 'inactive', 'exited', 'deceased'], true)) {
                 $query->where($column, $status);
             }
         };

@@ -3,7 +3,7 @@
 @section('content')
     <div class="page-intro">
         <h1>My membership</h1>
-        <p>{{ $member->first_name }} {{ $member->last_name }} · {{ $member->registration_no }} · {{ ucfirst($member->status) }}</p>
+        <p>{{ $member->first_name }} {{ $member->last_name }} · {{ $member->registration_no }} · {{ $member->status === 'exited' ? 'Withdrawn' : ucfirst($member->status) }}</p>
         @if ($member->status === 'active')
             <a href="{{ route('member.loan-applications.create') }}">Apply for a loan</a>
             <a href="#withdrawals-heading">Savings withdrawals</a>

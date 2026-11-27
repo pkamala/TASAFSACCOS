@@ -127,7 +127,7 @@ class MemberFundsController extends Controller
             if ($existing !== null) {
                 return $existing;
             }
-            if ($profile->status === 'exited' && DB::table('member_exits')->where('member_id', $member)
+            if (in_array($profile->status, ['exited', 'deceased'], true) && DB::table('member_exits')->where('member_id', $member)
                 ->whereNotNull('settlement_journal_id')->exists()) {
                 $this->invalid('Savings interest was accounted for in the posted exit settlement.');
             }

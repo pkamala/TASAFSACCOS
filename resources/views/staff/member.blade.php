@@ -4,7 +4,7 @@
     <div class="page-intro">
         <a href="{{ route('staff.members.index') }}">All members</a>
         <h1>{{ $profile->first_name }} {{ $profile->last_name }}</h1>
-        <p>{{ $profile->registration_no }} · {{ ucfirst($profile->status) }}</p>
+        <p>{{ $profile->registration_no }} · {{ $profile->status === 'exited' ? 'Withdrawn' : ucfirst($profile->status) }}</p>
         @include('member.tenure', ['joiningDate' => $profile->joining_date, 'exitedOn' => $exitedOn])
         <a href="{{ route('staff.members.next-of-kin.index', $profile->id) }}">Next of kin</a>
         <a href="{{ route('staff.loan-applications.index', $profile->id) }}">Loan applications</a>
@@ -39,7 +39,7 @@
                 </form>
             </section>
         @endif
-        @if ($profile->status !== 'exited')
+        @if (in_array($profile->status, ['active', 'inactive'], true))
             <section class="panel">
                 <h2>Membership status</h2>
                 <form method="POST" action="{{ route('staff.members.status.update', $profile->id) }}" class="fields">
@@ -49,7 +49,10 @@
                     <select id="membership_status" name="membership_status" required>
                         <option value="active" @selected(old('membership_status', $profile->status) === 'active')>Active</option>
                         <option value="inactive" @selected(old('membership_status', $profile->status) === 'inactive')>Inactive</option>
+                        <option value="withdrawn" @selected(old('membership_status') === 'withdrawn')>Withdrawn</option>
+                        <option value="deceased" @selected(old('membership_status') === 'deceased')>Deceased</option>
                     </select>
+                    <p>Choose Withdrawn to open the membership exit workflow.</p>
                     <label for="status_reason">Reason for status change</label>
                     <input id="status_reason" name="status_reason" maxlength="500" required>
                     <button class="primary">Save membership status</button>

@@ -121,8 +121,8 @@ class MemberExitController extends Controller
             abort_if($initial === null, 404);
             $profile = DB::table('members')->lockForUpdate()->find($initial->member_id);
             $record = DB::table('member_exits')->lockForUpdate()->find($exit);
-            if ($record->status !== 'approved' || $profile->status !== 'active') {
-                $this->invalid('An approved exit for an active member is required.');
+            if ($record->status !== 'approved' || ! in_array($profile->status, ['active', 'inactive', 'deceased'], true)) {
+                $this->invalid('An approved exit for an unsettled membership is required.');
             }
             if ($data['effective_on'] < CarbonImmutable::parse($record->reviewed_at)->setTimezone('Africa/Dar_es_Salaam')->toDateString()) {
                 $this->invalid('The exit date must be on or after approval.');
@@ -167,9 +167,10 @@ class MemberExitController extends Controller
         return DB::transaction(function () use ($request, $member, $data): int {
             $profile = DB::table('members')->lockForUpdate()->find($member);
             abort_if($profile === null, 404);
-            if ($profile->status !== 'active' || DB::table('member_exits')->where('member_id', $member)
-                ->whereIn('status', ['requested', 'approved'])->exists()) {
-                $this->invalid('The member must be active and have no open exit request.');
+            $allowedStatuses = $request->routeIs('staff.member-exits.store') ? ['active', 'inactive', 'deceased'] : ['active'];
+            if (! in_array($profile->status, $allowedStatuses, true) || DB::table('member_exits')->where('member_id', $member)
+                ->whereIn('status', ['requested', 'approved', 'finalized'])->exists()) {
+                $this->invalid('The membership must be eligible for settlement and have no open or finalized exit request.');
             }
 
             return DB::table('member_exits')->insertGetId([

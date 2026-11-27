@@ -53,7 +53,7 @@ class MemberExitSettlement
     public function deactivateMember(int $member, int $exit, int $actor): void
     {
         $now = now();
-        DB::table('members')->where('id', $member)->update(['status' => 'exited', 'updated_at' => $now]);
+        DB::table('members')->where('id', $member)->where('status', '!=', 'deceased')->update(['status' => 'exited', 'updated_at' => $now]);
         $officer = User::query()->where('member_id', $member)->first();
         if ($officer?->isBoardOfficer()) {
             DB::table('board_role_changes')->insert([

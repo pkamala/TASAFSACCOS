@@ -20,7 +20,7 @@ class MemberProfileController extends Controller
 {
     public function index(Request $request): View|string
     {
-        $input = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'status' => ['nullable', 'in:active,inactive,exited']]);
+        $input = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'status' => ['nullable', 'in:active,inactive,exited,deceased']]);
         $search = $input['q'] ?? '';
         $intake = $request->routeIs('staff.loan-intake');
         $status = $intake ? 'active' : ($input['status'] ?? '');
@@ -227,15 +227,33 @@ class MemberProfileController extends Controller
 
     public function updateStatus(Request $request, int $member): RedirectResponse
     {
-        $data = $request->validate(['membership_status' => ['required', 'in:active,inactive'], 'status_reason' => ['required', 'string', 'max:500']]);
+        $data = $request->validate(['membership_status' => ['required', 'in:active,inactive,withdrawn,deceased'], 'status_reason' => ['required', 'string', 'max:500']]);
+        if ($data['membership_status'] === 'withdrawn') {
+            return redirect()->route('staff.member-exits.create', $member)->withInput(['reason' => $data['status_reason']]);
+        }
+
         DB::transaction(function () use ($request, $member, $data): void {
+            DB::selectOne('SELECT pg_advisory_xact_lock(hashtext(?))', ['board-roles']);
             $profile = DB::table('members')->lockForUpdate()->find($member);
             abort_if($profile === null, 404);
-            if ($profile->status === 'exited' || DB::table('member_exits')->where('member_id', $member)
-                ->whereIn('status', ['requested', 'approved'])->exists()) {
+            if (in_array($profile->status, ['exited', 'deceased'], true)
+                || ($data['membership_status'] !== 'deceased' && DB::table('member_exits')->where('member_id', $member)
+                    ->whereIn('status', ['requested', 'approved'])->exists())) {
                 throw ValidationException::withMessages(['membership_status' => 'Use the membership exit workflow for a member with an exit request or completed exit.']);
             }
-            $this->saveChanges($member, $request->user()->id, ['status' => $data['membership_status']], $data['status_reason'], 'status_reason');
+            $actor = $request->user()->id;
+            $this->saveChanges($member, $actor, ['status' => $data['membership_status']], $data['status_reason'], 'status_reason');
+            if ($data['membership_status'] === 'deceased') {
+                $officer = User::query()->where('member_id', $member)->lockForUpdate()->first();
+                if ($officer?->isBoardOfficer()) {
+                    DB::table('board_role_changes')->insert([
+                        'role' => $officer->board_role, 'previous_user_id' => $officer->id, 'next_user_id' => null,
+                        'changed_by' => $actor, 'reason' => $data['status_reason'], 'changed_at' => now(),
+                    ]);
+                    $officer->board_role = null;
+                    $officer->save();
+                }
+            }
         }, 3);
 
         return redirect()->route('staff.members.show', $member)->with('status', 'Membership status saved.');

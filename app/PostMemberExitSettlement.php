@@ -104,8 +104,8 @@ class PostMemberExitSettlement
             if ($record->status === 'finalized' && isset($snapshot['movements'])) {
                 return;
             }
-            if ($record->status !== 'approved' || $member->status !== 'active') {
-                $this->invalid('An approved exit for an active member is required.');
+            if ($record->status !== 'approved' || ! in_array($member->status, ['active', 'inactive', 'deceased'], true)) {
+                $this->invalid('An approved exit for an unsettled membership is required.');
             }
             if ($member->legacy_member_id !== null && $legacyClearance === null) {
                 $this->invalid('Record the legacy balance clearance reference.');

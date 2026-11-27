@@ -39,7 +39,7 @@
                             @forelse ($rows as $row)
                                 <tr>
                                     <th scope="row">{{ $row->registration_no }} · {{ $row->first_name }} {{ $row->last_name }}</th>
-                                    <td>{{ ucfirst($row->status) }}</td>
+                                    <td>{{ $row->status === 'exited' ? 'Withdrawn' : ucfirst($row->status) }}</td>
                                     @if ($row->as_of === null)
                                         <td colspan="{{ $product === 'savings' ? 4 : 2 }}">Awaiting verified opening balances</td>
                                     @else
