@@ -34,6 +34,7 @@ class PostMemberExitSettlement
 
     public function plan(int $member, CarbonImmutable $date, bool $lock = false): array
     {
+        $this->requireEffectiveDate($member, $date);
         $active = DB::table('loan_applications')->where('member_id', $member)->where('status', 'disbursed')->orderBy('id');
         $loanIds = ($lock ? $active->lockForUpdate() : $active)->pluck('id');
         $amounts = $this->settlements->draft($member, $date);
@@ -91,9 +92,9 @@ class PostMemberExitSettlement
         return hash('sha256', json_encode($plan, JSON_THROW_ON_ERROR));
     }
 
-    public function post(int $exit, int $actor, string $fingerprint, array $accountIds, ?string $legacyClearance): void
+    public function post(int $exit, int $actor, CarbonImmutable $date, string $fingerprint, array $accountIds, ?string $legacyClearance): void
     {
-        DB::transaction(function () use ($exit, $actor, $fingerprint, $accountIds, $legacyClearance): void {
+        DB::transaction(function () use ($exit, $actor, $date, $fingerprint, $accountIds, $legacyClearance): void {
             DB::selectOne('SELECT pg_advisory_xact_lock(hashtext(?))', ['payroll-schedule']);
             DB::selectOne('SELECT pg_advisory_xact_lock(hashtext(?))', ['board-roles']);
             $initial = DB::table('member_exits')->find($exit);
@@ -111,7 +112,6 @@ class PostMemberExitSettlement
                 $this->invalid('Record the legacy balance clearance reference.');
             }
             $this->requireReady($member->id);
-            $date = CarbonImmutable::today('Africa/Dar_es_Salaam');
             $plan = $this->plan($member->id, $date, lock: true);
             if (! hash_equals($this->fingerprint($plan), $fingerprint)) {
                 $this->invalid('The settlement changed. Review the current figures and submit again.');
@@ -133,6 +133,24 @@ class PostMemberExitSettlement
             ]);
             $this->settlements->deactivateMember($member->id, $exit, $actor);
         }, 3);
+    }
+
+    private function requireEffectiveDate(int $member, CarbonImmutable $date): void
+    {
+        $effectiveOn = $date->toDateString();
+        $joiningDate = DB::table('members')->where('id', $member)->value('joining_date');
+        if ($joiningDate !== null && $effectiveOn < $joiningDate) {
+            $this->invalid('The effective date cannot precede the joining date.');
+        }
+
+        if (DB::table('member_verified_balances')->where('member_id', $member)->whereNull('superseded_by_id')->where('as_of', '>', $effectiveOn)->exists()
+            || DB::table('member_fund_transactions')->where('member_id', $member)->where('effective_on', '>', $effectiveOn)->exists()
+            || DB::table('loan_disbursements as transfer')->join('loan_applications as loan', 'loan.id', '=', 'transfer.loan_application_id')
+                ->where('loan.member_id', $member)->where('transfer.transferred_on', '>', $effectiveOn)->exists()
+            || DB::table('loan_repayment_receipts as receipt')->join('loan_applications as loan', 'loan.id', '=', 'receipt.loan_application_id')
+                ->where('loan.member_id', $member)->where('receipt.received_on', '>', $effectiveOn)->exists()) {
+            $this->invalid('Reconcile member balances, fund movements, and loan activity dated after the effective date before posting.');
+        }
     }
 
     private function requireReady(int $member): void

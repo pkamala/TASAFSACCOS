@@ -54,7 +54,7 @@ class MemberExitController extends Controller
         return redirect()->route('member.account')->with('status', 'Exit request submitted.');
     }
 
-    public function show(int $exit, MemberExitSettlement $settlements): View
+    public function show(Request $request, int $exit, MemberExitSettlement $settlements): View
     {
         $record = DB::table('member_exits')->find($exit);
         abort_if($record === null, 404);
@@ -62,10 +62,12 @@ class MemberExitController extends Controller
         $actors = DB::table('users')->whereIn('id', array_filter([$record->requested_by, $record->reviewed_by, $record->finalized_by]))->pluck('name', 'id');
         $openLoans = $this->openLoans($record->member_id)->count();
 
-        $draftDate = CarbonImmutable::today('Africa/Dar_es_Salaam');
+        $today = CarbonImmutable::today('Africa/Dar_es_Salaam');
+        $input = $request->validate(['effective_on' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:1900-01-01', 'before_or_equal:'.$today->toDateString()]]);
+        $draftDate = CarbonImmutable::parse($input['effective_on'] ?? $today->toDateString(), $today->timezone);
         $draft = in_array($record->status, ['requested', 'approved'], true) ? $settlements->draft($profile->id, $draftDate) : null;
 
-        return view('staff.member-exits.show', compact('record', 'profile', 'actors', 'openLoans', 'draft', 'draftDate'));
+        return view('staff.member-exits.show', compact('record', 'profile', 'actors', 'openLoans', 'draft', 'draftDate', 'today'));
     }
 
     public function voucher(int $exit, MemberExitSettlement $settlements): View
@@ -110,7 +112,7 @@ class MemberExitController extends Controller
     public function finalize(Request $request, int $exit, MemberExitSettlement $settlements): RedirectResponse
     {
         $data = $request->validate([
-            'effective_on' => ['required', 'date_format:Y-m-d', 'before_or_equal:'.now('Africa/Dar_es_Salaam')->toDateString()],
+            'effective_on' => ['required', 'date_format:Y-m-d', 'after_or_equal:1900-01-01', 'before_or_equal:'.now('Africa/Dar_es_Salaam')->toDateString()],
             'settlement_reference' => ['required', 'string', 'max:500'],
             'legacy_clearance_reference' => ['nullable', 'string', 'max:500'],
         ]);
@@ -124,8 +126,8 @@ class MemberExitController extends Controller
             if ($record->status !== 'approved' || ! in_array($profile->status, ['active', 'inactive', 'deceased'], true)) {
                 $this->invalid('An approved exit for an unsettled membership is required.');
             }
-            if ($data['effective_on'] < CarbonImmutable::parse($record->reviewed_at)->setTimezone('Africa/Dar_es_Salaam')->toDateString()) {
-                $this->invalid('The exit date must be on or after approval.');
+            if ($profile->joining_date !== null && $data['effective_on'] < $profile->joining_date) {
+                $this->invalid('The effective date cannot precede the joining date.');
             }
             if ($profile->legacy_member_id !== null && empty($data['legacy_clearance_reference'])) {
                 $this->invalid('Record the legacy balance and liabilities clearance reference.');
@@ -142,7 +144,7 @@ class MemberExitController extends Controller
             $now = now();
             DB::table('member_exits')->where('id', $exit)->update([
                 'status' => 'finalized', 'finalized_by' => $request->user()->id, 'finalized_at' => $now,
-                'voucher_snapshot' => ($snapshot = $this->voucherSnapshot($profile->id, $settlements)) === null
+                'voucher_snapshot' => ($snapshot = $this->voucherSnapshot($profile->id, $settlements, CarbonImmutable::parse($data['effective_on'], 'Africa/Dar_es_Salaam'))) === null
                     ? null : json_encode($snapshot, JSON_THROW_ON_ERROR),
                 ...$data,
             ]);
@@ -152,12 +154,12 @@ class MemberExitController extends Controller
         return back()->with('status', 'Exit finalized and membership deactivated.');
     }
 
-    private function voucherSnapshot(int $member, MemberExitSettlement $settlements): ?array
+    private function voucherSnapshot(int $member, MemberExitSettlement $settlements, ?CarbonImmutable $date = null): ?array
     {
-        $today = CarbonImmutable::today('Africa/Dar_es_Salaam');
-        $amounts = $settlements->draft($member, $today);
+        $date ??= CarbonImmutable::today('Africa/Dar_es_Salaam');
+        $amounts = $settlements->draft($member, $date);
 
-        return $amounts === null ? null : ['calculated_on' => $today->toDateString(), 'amounts' => $amounts];
+        return $amounts === null ? null : ['calculated_on' => $date->toDateString(), 'amounts' => $amounts];
     }
 
     private function requestExit(Request $request, int $member): int

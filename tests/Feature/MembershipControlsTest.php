@@ -90,7 +90,7 @@ class MembershipControlsTest extends TestCase
         $exit = DB::table('member_exits')->sole()->id;
         $path = "/staff/member-exits/$exit";
         $decision = ['decision' => 'approved', 'review_note' => 'Settlement to be confirmed'];
-        $finish = ['effective_on' => '2026-11-22', 'settlement_reference' => 'Settlement 01', 'legacy_clearance_reference' => 'Legacy clearance 01'];
+        $finish = ['effective_on' => '2026-11-15', 'settlement_reference' => 'Settlement 01', 'legacy_clearance_reference' => 'Legacy clearance 01'];
 
         $this->post("$path/review", $decision)->assertForbidden();
         $this->actingAs($admin)->get($path)->assertOk()->assertSee('A verified opening balance is needed');
@@ -120,9 +120,9 @@ class MembershipControlsTest extends TestCase
         $this->actingAs($admin)->from($path)->post("$path/finalize", [...$finish, 'legacy_clearance_reference' => null])->assertSessionHasErrors('exit');
         $this->from($path)->post("$path/finalize", $finish)->assertRedirect($path);
         DB::table('member_verified_balances')->where('member_id', $member)->update(['savings_minor' => 200000]);
-        $this->get("$path/voucher")->assertOk()->assertSee('Settlement 01')->assertSee('1,180.00')->assertDontSee('Draft membership exit voucher');
+        $this->get("$path/voucher")->assertOk()->assertSee('Settlement 01')->assertSee('Effective date 2026-11-15')->assertSee('1,180.00')->assertDontSee('Draft membership exit voucher');
         $this->assertDatabaseHas('member_exits', [
-            'id' => $exit, 'status' => 'finalized', 'reviewed_by' => $reviewer->id, 'finalized_by' => $admin->id,
+            'id' => $exit, 'status' => 'finalized', 'effective_on' => '2026-11-15', 'finalized_at' => now(), 'reviewed_by' => $reviewer->id, 'finalized_by' => $admin->id,
         ]);
         $this->assertDatabaseHas('members', ['id' => $member, 'status' => 'exited']);
         $this->assertNull($officer->fresh()->board_role);
@@ -218,6 +218,7 @@ class MembershipControlsTest extends TestCase
             'gross' => 1500, 'withholding' => 150, 'net' => 1350, 'payout' => 413350,
             'annualRate' => 600, 'withholdingRate' => 1000,
         ]);
+        $this->get("$path?effective_on=2027-02-15")->assertOk()->assertViewHas('draft', fn (array $draft): bool => $draft['savings'] === 100000 && $draft['interest']['gross'] === 500 && $draft['interest']['payout'] === 118450);
         $this->from($settings)->patch($settings, [...$rates, 'withholding_rate' => '101'])->assertSessionHasErrors('withholding_rate');
         $this->patch($settings, $rates)->assertRedirect($settings);
 
@@ -430,10 +431,12 @@ class MembershipControlsTest extends TestCase
         $path = "/staff/member-exits/$exit";
         $this->actingAs($reviewer)->post("$path/review", ['decision' => 'approved', 'review_note' => 'Reviewed'])->assertRedirect();
         $this->get("$path/settlement")->assertForbidden();
-        $review = $this->actingAs($admin)->get("$path/settlement")->assertOk()
+        $review = $this->actingAs($admin)->get("$path/settlement?effective_on=2026-11-15")->assertOk()
             ->assertViewHas('plan', fn (array $plan): bool => $plan['payable'] === $payable && $plan['outstanding'] === $outstanding);
-        $input = ['fingerprint' => $review['fingerprint'], 'accounts' => $accounts];
+        $input = ['fingerprint' => $review['fingerprint'], 'accounts' => $accounts, 'effective_on' => '2026-11-15'];
         $this->from("$path/settlement")->post("$path/settlement", [...$input, 'fingerprint' => str_repeat('0', 64)])
+            ->assertSessionHasErrors('exit');
+        $this->from("$path/settlement")->post("$path/settlement", [...$input, 'effective_on' => '2026-11-16'])
             ->assertSessionHasErrors('exit');
         $this->assertDatabaseEmpty('general_journals');
 
@@ -449,6 +452,8 @@ class MembershipControlsTest extends TestCase
         $this->assertSame(0, app(LedgerPeriods::class)->unposted('2026-11-01', '2026-11-30')['loan_repayments']);
         $this->assertSame(0, app(LedgerPeriods::class)->unposted('2026-11-01', '2026-11-30')['member_funds']);
         $journal = DB::table('general_journals')->sole()->id;
+        $this->assertDatabaseHas('general_journals', ['id' => $journal, 'transaction_date' => '2026-11-15']);
+        $this->assertDatabaseHas('member_exits', ['id' => $exit, 'effective_on' => '2026-11-15', 'finalized_at' => now()]);
         DB::statement('SET CONSTRAINTS general_journal_balanced, general_journal_lines_balanced IMMEDIATE');
         $this->assertSame(0, (int) DB::table('general_journal_lines')->where('general_journal_id', $journal)->sum('signed_minor'));
         if ($payable > 0) {

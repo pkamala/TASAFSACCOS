@@ -50,17 +50,18 @@ class MemberFunds
                 WHERE reversal.member_fund_journal_id = journal.id {$reversalDate}))";
     }
 
-    public function balances(int $member, bool $includeInterestMonths = false): array
+    public function balances(int $member, bool $includeInterestMonths = false, ?string $asOf = null): array
     {
-        $opening = $this->opening()->where('member_id', $member)->first();
-        $movements = $this->movements()->where('member_id', $member);
+        $opening = $this->opening()->where('member_id', $member)
+            ->when($asOf !== null, fn (Builder $query) => $query->where('as_of', '<=', $asOf))->first();
+        $movements = $this->movements($asOf)->where('member_id', $member);
         if ($includeInterestMonths) {
-            $posted = self::activePostedJournal();
+            $posted = self::activePostedJournal($asOf !== null);
             $movements->selectRaw("json_agg(to_char(effective_on, 'YYYY-MM'))
-                FILTER (WHERE kind = 'savings_interest' AND {$posted}) AS posted_interest_months");
+                FILTER (WHERE kind = 'savings_interest' AND {$posted}) AS posted_interest_months", $asOf === null ? [] : [$asOf]);
         }
         $transactions = $movements->first();
-        $reserved = (int) $this->reservations()->where('member_id', $member)->first()->reserved;
+        $reserved = (int) $this->reservations($asOf)->where('member_id', $member)->first()->reserved;
         $savings = $opening === null ? null : $opening->savings_minor + (int) $transactions->savings;
         $shares = $opening === null ? null : $opening->shares_minor + (int) $transactions->shares;
 

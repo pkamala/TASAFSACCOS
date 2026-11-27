@@ -10,8 +10,8 @@
         <p><a href="{{ route('staff.member-exits.voucher', $record->id) }}">View exit voucher</a></p>
     @endif
     @can('manage-members')
-        @if ($record->status === 'approved' && $draft)
-            <p><a href="{{ route('staff.member-exits.settlement.show', $record->id) }}">Review and post exit settlement</a></p>
+        @if ($record->status === 'approved')
+            <p><a href="{{ route('staff.member-exits.settlement.show', ['exit' => $record->id, 'effective_on' => $draftDate->toDateString()]) }}">Review and post exit settlement</a></p>
         @endif
     @endcan
     @if (session('status'))<p role="status">{{ session('status') }}</p>@endif
@@ -44,9 +44,16 @@
     @if (in_array($record->status, ['requested', 'approved'], true))
         <section class="panel stacked-panel">
             <h2>Draft settlement as of {{ $draftDate->format('d M Y') }}</h2>
+            @can('manage-members')
+                <form class="fields search" method="GET" action="{{ route('staff.member-exits.show', $record->id) }}">
+                    <label for="draft-effective-on">Effective date to preview</label>
+                    <input type="date" id="draft-effective-on" name="effective_on" value="{{ $draftDate->toDateString() }}" min="{{ $profile->joining_date ?? '1900-01-01' }}" max="{{ $today->toDateString() }}" required>
+                    <button class="primary">Calculate draft</button>
+                </form>
+            @endcan
             @if ($draft)
                 <dl class="summary">
-                    <div><dt>Current savings (TZS)</dt><dd>{{ number_format($draft['savings'] / 100, 2) }}</dd></div>
+                    <div><dt>Savings as of effective date (TZS)</dt><dd>{{ number_format($draft['savings'] / 100, 2) }}</dd></div>
                     <div><dt>Withdrawal processing fee · 2% (TZS)</dt><dd>{{ number_format($draft['fee'] / 100, 2) }}</dd></div>
                     <div><dt>Outstanding loan principal (TZS)</dt><dd>{{ number_format($draft['principal'] / 100, 2) }}</dd></div>
                     <div><dt>Unpaid loan interest through {{ $draftDate->format('F Y') }} (TZS)</dt><dd>{{ number_format($draft['loanInterest'] / 100, 2) }}</dd></div>
@@ -57,7 +64,7 @@
                     <div><dt>Net savings interest (TZS)</dt><dd>{{ number_format($draft['interest']['net'] / 100, 2) }}</dd></div>
                     <div><dt>{{ $draft['interest']['payout'] < 0 ? 'Settlement shortfall' : 'Draft payout' }} (TZS)</dt><dd>{{ number_format(abs($draft['interest']['payout']) / 100, 2) }}</dd></div>
                 </dl>
-                <p>Posted net interest is included in current savings. Unposted interest is calculated for completed months in {{ $draftDate->year }} covered by verified savings records.</p>
+                <p>Posted net interest is included in savings as of the effective date. Unposted interest is calculated for completed months in {{ $draftDate->year }} covered by verified savings records.</p>
                 @if ($profile->legacy_member_id !== null)
                     <p>Reconcile any remaining legacy balances and liabilities against the clearance record.</p>
                 @endif
@@ -74,7 +81,8 @@
                 <form class="fields search" method="POST" action="{{ route('staff.member-exits.finalize', $record->id) }}">
                     @csrf
                     <label for="effective_on">Exit effective date</label>
-                    <input type="date" id="effective_on" name="effective_on" required>
+                    <input type="date" id="effective_on" name="effective_on" value="{{ old('effective_on', $draftDate->toDateString()) }}" min="{{ $profile->joining_date ?? '1900-01-01' }}" max="{{ $today->toDateString() }}" required>
+                    <p>The effective date can predate this system’s approval. Finalization records today’s timestamp separately.</p>
                     <label for="settlement_reference">Savings and share settlement reference</label>
                     <textarea id="settlement_reference" name="settlement_reference" maxlength="500" required></textarea>
                     @if ($profile->legacy_member_id !== null)

@@ -13,8 +13,8 @@ class MemberExitSettlement
     /** @return array{savings: int, shares: int, fee: int, principal: int, loanInterest: int, subtotal: int, interest: array{gross: int, withholding: int, net: int, payout: int, annualRate: int, withholdingRate: int}}|null */
     public function draft(int $member, CarbonImmutable $date): ?array
     {
-        $balance = $this->funds->balances($member, includeInterestMonths: true);
-        if ($balance['opening'] === null || $balance['opening']->as_of > $date->toDateString()) {
+        $balance = $this->funds->balances($member, includeInterestMonths: true, asOf: $date->toDateString());
+        if ($balance['opening'] === null) {
             return null;
         }
 
@@ -24,7 +24,8 @@ class MemberExitSettlement
 
         $paid = DB::table('loan_repayment_allocations as allocation')
             ->join('loan_applications as loan', 'loan.id', '=', 'allocation.loan_application_id')
-            ->where('loan.member_id', $member)->where('loan.status', 'disbursed')
+            ->join('loan_repayment_receipts as receipt', 'receipt.id', '=', 'allocation.loan_repayment_receipt_id')
+            ->where('loan.member_id', $member)->where('receipt.received_on', '<=', $date->toDateString())
             ->groupBy('allocation.loan_application_id', 'allocation.installment_number')
             ->select('allocation.loan_application_id', 'allocation.installment_number')
             ->selectRaw('sum(allocation.principal_minor) AS principal, sum(allocation.interest_minor) AS interest');
@@ -34,7 +35,13 @@ class MemberExitSettlement
             ->leftJoinSub($paid, 'paid', fn ($join) => $join
                 ->on('paid.loan_application_id', '=', 'installment.loan_application_id')
                 ->on('paid.installment_number', '=', 'installment.number'))
-            ->where('loan.member_id', $member)->where('loan.status', 'disbursed')
+            ->where('loan.member_id', $member)
+            ->where(fn ($query) => $query->where('loan.status', 'disbursed')
+                ->orWhere(fn ($later) => $later->where('loan.status', 'repaid')
+                    ->whereExists(fn ($receipts) => $receipts->selectRaw('1')->from('loan_repayment_receipts as receipt')
+                        ->whereColumn('receipt.loan_application_id', 'loan.id')->where('receipt.received_on', '>', $date->toDateString()))))
+            ->whereNotExists(fn ($transfer) => $transfer->selectRaw('1')->from('loan_disbursements as transfer')
+                ->whereColumn('transfer.loan_application_id', 'loan.id')->where('transfer.transferred_on', '>', $date->toDateString()))
             ->selectRaw('coalesce(sum(installment.principal_minor - coalesce(paid.principal, 0)), 0) AS principal')
             ->selectRaw('coalesce(sum(installment.interest_minor - coalesce(paid.interest, 0))
                 FILTER (WHERE installment.due_date <= ?), 0) AS interest', [
