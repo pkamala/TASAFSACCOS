@@ -68,6 +68,34 @@ class CashBookReviewTest extends TestCase
         $this->assertDatabaseCount('general_journals', 1);
     }
 
+    public function test_trial_balance_preview_combines_opening_figures_and_reviewed_workbook_journals(): void
+    {
+        $this->travelTo(now('Africa/Dar_es_Salaam')->setDate(2026, 11, 27));
+        $admin = User::factory()->create(['is_staff_admin' => true]);
+        [$bank, $expense] = $this->accounts();
+        $entry = $this->entry('CB2026-10-004');
+        $path = route('staff.cash-book-review.trial-balance');
+        $opening = ['source_sha256' => str_repeat('a', 64), 'source_file' => 'Workbook.xlsx', 'as_of' => '2025-12-31'];
+        DB::table('cash_book_review_opening_lines')->insert([
+            [...$opening, 'source_row' => 5, 'account_code' => '1020', 'description' => 'Bank', 'signed_minor' => 50000],
+            [...$opening, 'source_row' => 6, 'account_code' => null, 'description' => 'Unmapped liability', 'signed_minor' => -50001],
+        ]);
+
+        $this->actingAs(User::factory()->create())->get($path)->assertForbidden();
+        $this->actingAs($admin)->get($path)->assertOk()->assertSee('2025-12-31')->assertSee('Unmapped liability')
+            ->assertSee('TZS 0.01 credit excess')->assertViewHas('totals', fn (array $totals): bool => $totals['movement_debit'] === 0);
+        $this->patch(route('staff.cash-book-review.review', $entry), [
+            'decision' => 'approve', 'transaction_date' => '2026-10-02', 'accounts' => [$bank, $expense],
+            'review_note' => 'Reviewed bank charge.',
+        ])->assertRedirect();
+        $this->get($path)->assertOk()->assertSee('1 approved and 0 posted')->assertViewHas('totals', [
+            'opening_debit' => 50000, 'opening_credit' => 50001, 'movement_debit' => 10000,
+            'movement_credit' => 10000, 'preview_debit' => 50000, 'preview_credit' => 50001,
+        ]);
+        $this->post(route('staff.cash-book-review.post'), ['month' => '2026-10'])->assertRedirect();
+        $this->get($path)->assertOk()->assertSee('0 approved and 1 posted');
+    }
+
     private function accounts(): array
     {
         $category = DB::table('account_categories')->insertGetId(['legacy_id' => 1, 'legacy_source_sha256' => str_repeat('a', 64), 'name' => 'Assets']);

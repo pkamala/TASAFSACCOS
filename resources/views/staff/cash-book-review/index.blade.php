@@ -3,6 +3,7 @@
 @section('content')
     <div class="page-intro">
         <a href="{{ route('staff.cutover-checklist') }}">Cutover checklist</a>
+        <a href="{{ route('staff.cash-book-review.trial-balance') }}">Trial balance preview</a>
         <h1>Cashbook review</h1>
         <p>Review imported transactions against existing journals before approving new entries.</p>
     </div>
