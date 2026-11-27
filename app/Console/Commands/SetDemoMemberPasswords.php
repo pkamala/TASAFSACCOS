@@ -42,7 +42,7 @@ class SetDemoMemberPasswords extends Command
             $userIds = [];
             $members = DB::table('members')->whereNotIn('id', DB::table('members')
                 ->whereNotNull('previous_membership_id')->select('previous_membership_id'))
-                ->orderBy('id')->get(['id', 'email', 'first_name', 'last_name']);
+                ->where('email', 'not like', '%@pending.invalid')->orderBy('id')->get(['id', 'email', 'first_name', 'last_name']);
             foreach ($members as $member) {
                 $user = User::query()->where('member_id', $member->id)->lockForUpdate()->first();
                 $email = Str::lower(trim($user?->email ?? $member->email));

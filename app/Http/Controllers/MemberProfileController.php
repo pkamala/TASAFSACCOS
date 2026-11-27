@@ -197,7 +197,13 @@ class MemberProfileController extends Controller
 
     public function update(Request $request, int $member): RedirectResponse
     {
+        $email = $request->input('contact_email');
+        if (is_string($email)) {
+            $request->merge(['contact_email' => Str::lower(trim($email))]);
+        }
+
         $input = $request->validate([
+            'contact_email' => ['sometimes', 'nullable', 'email', 'max:255', 'not_regex:/\.invalid$/i', Rule::unique('members', 'email')->ignore($member)],
             'first_name' => ['required', 'string', 'max:100'],
             'middle_name' => ['present', 'nullable', 'string', 'max:100'],
             'last_name' => ['required', 'string', 'max:100'],
@@ -205,7 +211,16 @@ class MemberProfileController extends Controller
             'joining_date' => ['present', 'nullable', 'date_format:Y-m-d', 'after_or_equal:1900-01-01', 'before_or_equal:today'],
         ]);
 
-        $this->saveChanges($member, $request->user()->id, $input);
+        if (isset($input['contact_email'])) {
+            $input['email'] = $input['contact_email'];
+        }
+        unset($input['contact_email']);
+
+        try {
+            $this->saveChanges($member, $request->user()->id, $input);
+        } catch (UniqueConstraintViolationException) {
+            throw ValidationException::withMessages(['contact_email' => 'This email is already registered.']);
+        }
 
         return redirect()->route('staff.members.show', $member)->with('status', 'Member profile saved.');
     }
@@ -285,6 +300,12 @@ class MemberProfileController extends Controller
         DB::transaction(function () use ($member, $actor, $input, $reference, $referenceField): void {
             $profile = DB::table('members')->lockForUpdate()->find($member);
             abort_if(! $profile, 404);
+
+            if (isset($input['email']) && (! Str::endsWith($profile->email, '@pending.invalid')
+                || User::query()->where('member_id', $member)->exists()
+                || User::query()->whereRaw('lower(email) = ?', [$input['email']])->exists())) {
+                throw ValidationException::withMessages(['contact_email' => 'Only a pending email can be set, using an address with no existing login.']);
+            }
 
             $changes = [];
             foreach ($input as $field => $value) {

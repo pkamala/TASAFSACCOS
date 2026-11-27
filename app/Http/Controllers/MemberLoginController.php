@@ -34,7 +34,7 @@ class MemberLoginController extends Controller
                 $created = $user === null;
                 if ($created) {
                     $email = Str::lower(trim($profile->email));
-                    if ($profile->status !== 'active' || Validator::make(['email' => $email], ['email' => ['required', 'email', 'max:255']])->fails()) {
+                    if ($profile->status !== 'active' || Str::endsWith($email, '@pending.invalid') || Validator::make(['email' => $email], ['email' => ['required', 'email', 'max:255']])->fails()) {
                         throw ValidationException::withMessages(['login' => 'A new login requires an active member with a valid email address.']);
                     }
                     if (User::query()->whereRaw('lower(email) = ?', [$email])->exists()) {

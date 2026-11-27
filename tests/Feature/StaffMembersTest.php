@@ -66,6 +66,26 @@ class StaffMembersTest extends TestCase
         $this->assertGuest();
     }
 
+    public function test_staff_can_complete_a_pending_member_email_once(): void
+    {
+        $admin = User::factory()->create(['is_staff_admin' => true]);
+        $member = DB::table('members')->insertGetId([
+            'registration_no' => '10418', 'first_name' => 'Test', 'last_name' => 'Member',
+            'email' => 'member-10418@pending.invalid', 'status' => 'active',
+        ]);
+        $profile = "/staff/members/$member";
+        $details = ['first_name' => 'Test', 'middle_name' => null, 'last_name' => 'Member', 'phone' => null, 'joining_date' => null];
+
+        $this->actingAs($admin)->get($profile)->assertOk()
+            ->assertSee('name="contact_email"', false)->assertDontSee('Email account setup link');
+        $this->patch($profile, [...$details, 'contact_email' => 'other@pending.invalid'])->assertSessionHasErrors('contact_email');
+        $this->patch($profile, [...$details, 'contact_email' => 'MEMBER@example.com'])->assertRedirect($profile);
+        $this->assertDatabaseHas('members', ['id' => $member, 'email' => 'member@example.com']);
+        $this->assertDatabaseHas('member_audits', ['member_id' => $member, 'actor_id' => $admin->id]);
+        $this->patch($profile, [...$details, 'contact_email' => 'changed@example.com'])->assertSessionHasErrors('contact_email');
+        $this->get($profile)->assertOk()->assertDontSee('name="contact_email"', false)->assertSee('Email account setup link');
+    }
+
     public function test_members_page_size_keeps_the_search_and_accepts_only_supported_sizes(): void
     {
         $admin = User::factory()->create(['is_staff_admin' => true]);

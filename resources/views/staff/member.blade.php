@@ -22,6 +22,9 @@
         @endif
     </div>
     @if (session('status')) <p role="status">{{ session('status') }}</p> @endif
+    @php
+        $emailPending = str_ends_with($profile->email, '@pending.invalid');
+    @endphp
     <div class="profile-grid">
         @if ($profile->status === 'exited' && ! $nextMembership)
             <section class="panel">
@@ -74,7 +77,9 @@
         @endif
         <section class="panel">
             <h2>Profile details</h2>
-            <p>{{ $profile->email }}</p>
+            @unless ($emailPending)
+                <p>{{ $profile->email }}</p>
+            @endunless
             @include('form-errors')
             <form method="POST" action="{{ route('staff.members.update', $profile->id) }}" class="fields">
                 @csrf
@@ -83,6 +88,11 @@
                     <label for="{{ $field }}">{{ $label }}</label>
                     <input id="{{ $field }}" name="{{ $field }}" type="{{ match($field) { 'joining_date' => 'date', 'phone' => 'tel', default => 'text' } }}" value="{{ is_string(old($field, $profile->$field)) ? old($field, $profile->$field) : '' }}" @required(in_array($field, ['first_name', 'last_name'], true))>
                 @endforeach
+                @if ($emailPending)
+                    <label for="contact_email">Email</label>
+                    <input id="contact_email" name="contact_email" type="email" maxlength="255"
+                        value="{{ is_string(old('contact_email')) ? old('contact_email') : '' }}">
+                @endif
                 <button class="primary">Save profile</button>
             </form>
         </section>
@@ -106,6 +116,8 @@
             <h2>Member login</h2>
             @if ($login?->is_staff_admin)
                 <p>This account has administrator access. Use administrator password recovery.</p>
+            @elseif ($emailPending)
+                <p>Add the member’s email in Profile details before setting up a login.</p>
             @elseif ($login || $profile->status === 'active')
                 <p>{{ $login?->email ?? $profile->email }} · {{ $login ? ($login->local_setup_pending ? 'Setup pending' : 'Account created') : 'No login yet' }}</p>
                 <p>A one-time link will be emailed to this address.</p>
